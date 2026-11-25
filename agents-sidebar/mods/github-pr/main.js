@@ -321,14 +321,17 @@ function summaryRows(t, pr, ctx) {
   return v_flex().children(items(t, pr, s, ctx).filter((it) => it.key !== "conflicts" || s.conflicting).map((it) => {
     const id = `ghpr-${pr.number}-${it.key}`;
     if (!it.body || it.click) return rowHead(t, id, it).when(Boolean(it.click), (el) => el.on_click(it.click));
-    return Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
-      .on_open_change((open, cx) => { state.open = open ? id : null; state.drill = null; cx.notify(); })
-      .trigger(rowHead(t, id, it))
-      .content(div().pt(4).child(menu(t, it, state))); // 4px clear of the trigger's background
+    return menuRow(t, id, it, state);
   }));
 }
 
-// The PR tab: narrow, each PR's rows expand in place; wide, every PR's rows in one list beside a single pane with
+// A row whose body opens as a dropdown under it.
+const menuRow = (t, id, it, state) => Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
+  .on_open_change((open, cx) => { state.open = open ? id : null; state.drill = null; cx.notify(); })
+  .trigger(rowHead(t, id, it))
+  .content(div().pt(4).child(menu(t, it, state))); // 4px clear of the trigger's background
+
+// The PR tab: narrow, each PR's rows expand in place (Status opens a dropdown, as in the Summary); wide, every PR's rows in one list beside a single pane with
 // the selected row's content.
 function tabView(t, prs, ctx, loading) {
   const { state } = ctx;
@@ -341,6 +344,7 @@ function tabView(t, prs, ctx, loading) {
   if (ctx.width < WIDE) {
     return v_flex().gap(12).children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) => {
       const k = key(pr, it), open = Boolean(state.exp?.[k]);
+      if (it.key === "status") return menuRow(t, `tab-${k}`, it, state); // a dropdown, as in the Summary
       return v_flex()
         .child(rowHead(t, `tab-${k}`, { ...it, chevron: Boolean(it.body) }, { open })
           .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { (state.exp ??= {})[k] = !open; cx.notify(); })))
