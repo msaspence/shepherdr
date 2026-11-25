@@ -172,8 +172,8 @@ comments grouped by author, each labelled file + lines, or the start of its text
 conflicts (worked out locally: `git fetch origin <base>` then `git merge-tree --write-tree` against HEAD, only
 when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list replaces the menu with a back row.
 In the PR tab the same rows expand in place below 560px, and from 560px are a list beside the selected row's
-content; nested lists and comments then expand in place. Needs `gh` signed in; images can't be clipped round,
-so avatars are square.
+content; nested lists and comments then expand in place. Needs `gh` signed in. Avatars are round, check app logos
+rounded 4px (`image(...).size(n).rounded(...)` directly; a rounded parent doesn't clip an image).
 
 **Files and Changes:** Herdr's shipped `files` and `changes` mods, nested in the panel with
 `cx.new(ViewClass, {})` the first time their tab is shown (each panel keeps its own copy, which follows the

@@ -3,8 +3,8 @@
 // narrow, a list and a detail pane when it's wide (nested menus then become nested collapsibles).
 // Copies: the merge dialog (props.variant "merge"), a review comment's popover (props.variant "comment"), and the
 // panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
-import { View, div, svg, PathBuilder } from "gpui-kit";
-import { h_flex, v_flex, Avatar, AvatarFallback, AvatarImage, Popover, TextView } from "gpui-base";
+import { View, div, svg, image, PathBuilder } from "gpui-kit";
+import { h_flex, v_flex, Popover, TextView } from "gpui-base";
 import { closeOverlay, openOverlay, props, theme } from "herdr";
 import { avatarPath, load, merge, mergeMethod, setAutoMerge, summarize } from "./data.js";
 
@@ -27,12 +27,13 @@ const running = (t, size = 14) => div().relative().size(size).flex_none()
   .child(svg(I("spinner")).absolute().inset_0().size(size).text_color(C(t).gold).spin(900)
     .loop("opacity", { from: 0.97, to: 1, period: 1000 }));
 
-function avatar(t, url, login, size = 18) {
+// A person's picture (round), or a check's app logo (radius given); the first letter until it's downloaded.
+function avatar(t, url, login, size = 18, radius = null) {
   const file = avatarPath(url);
-  return Avatar.new().size(size).flex_none().rounded_full().overflow_hidden().bg(t.raised)
-    .when(Boolean(file), (el) => el.image(AvatarImage.new(file).size_full()))
-    .fallback(AvatarFallback.new().size_full().flex().items_center().justify_center().text_size(size * 0.55).text_color(t.muted)
-      .child((login ?? "?")[0].toUpperCase()));
+  const round = (el) => (radius == null ? el.rounded_full() : el.rounded(radius));
+  return file ? round(image(file).size(size).flex_none())
+    : round(div().size(size).flex().flex_none().items_center().justify_center().bg(t.raised)
+      .text_size(size * 0.55).text_color(t.muted).child((login ?? "?")[0].toUpperCase()));
 }
 
 // A ring split into arcs, one per [count, color], clockwise from the top; an empty one is a grey ring.
@@ -239,7 +240,7 @@ function checksMenu(v, pr) {
   const order = { failed: 0, missing: 1, running: 2, passed: 3 };
   return v_flex().gap(1).children([...pr.checks].sort((a, b) => order[a.state] - order[b.state]).map((ch, i) =>
     entry(t, `pr${pr.number}-ck-${i}`, ch.url ? (_e, cx) => cx.open_url(ch.url) : null)
-      .child(checkIcon(t, ch.state)).child(avatar(t, ch.avatar, ch.name, 16))
+      .child(checkIcon(t, ch.state)).child(avatar(t, ch.avatar, ch.name, 16, 4))
       .child(h_flex().flex_1().min_w(0).gap(6).child(div().min_w(0).truncate().text_size(12.5).child(ch.name))
         .when(ch.required, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Required"))))));
 }
