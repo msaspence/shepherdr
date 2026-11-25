@@ -50,9 +50,10 @@ function ring(t, segs, size = 14) {
   return box.children(shown.map(([v, color]) => {
     const span = (v / total) * 2 * Math.PI, from = a + gap / 2, to = a + span - gap / 2;
     a += span;
-    // In pieces of at most half a turn, so a full circle (one arc) still draws.
+    // In pieces of at most a quarter turn: a full circle (one arc) still draws, and the renderer finds each
+    // piece's centre from its ends, which drifts visibly when they're nearly opposite (a half-turn piece).
     let b = PathBuilder.stroke(w).move_to(...at(from));
-    for (let x = from; x < to - 1e-6;) { x = Math.min(to, x + Math.PI * 0.999); b = b.arc_to(r, r, 0, false, true, ...at(x)); }
+    for (let x = from; x < to - 1e-6;) { x = Math.min(to, x + Math.PI / 2); b = b.arc_to(r, r, 0, false, true, ...at(x)); }
     return div().absolute().inset_0().child(window.paint_path(b.build(), color));
   }));
 }
