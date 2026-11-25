@@ -173,12 +173,21 @@ export default class SideAgents extends Agents {
     });
   }
 
+  // Visiting a done agent makes it idle and re-sorts the list, so presses in quick succession
+  // keep the order they started with; otherwise next could bounce back to one already seen.
   step(d) {
-    const n = this.order?.length;
+    const now = Date.now();
+    const held = this.nav && now - this.nav.at < 2000 ? this.nav : null;
+    const order = held?.order ?? (this.order ?? []).map((a) => a.address);
+    const n = order.length;
     if (!n) return;
-    const i = this.order.indexOf(focused()?.agent);
-    const next = i < 0 ? (d > 0 ? 0 : n - 1) : (i + d + n) % n;
-    run("agent.select", { index: next + 1 });
+    // With a chat (mod) pane focused there's no focused agent: use its tab's, as the row highlight does.
+    const f = focused();
+    const cur = held?.addr ?? f?.agent ?? this.order.find((a) => a.tab === f?.tab)?.address;
+    const i = order.indexOf(cur);
+    const addr = order[i < 0 ? (d > 0 ? 0 : n - 1) : (i + d + n) % n];
+    this.nav = { order, addr, at: now };
+    run("pane.focus", { terminal: addr });
   }
 
   peek(addr) {
