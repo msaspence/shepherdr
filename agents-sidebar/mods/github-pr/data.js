@@ -1,14 +1,13 @@
 // github-pr's data: an agent's PRs, from `gh` (one GraphQL query per PR), plus the merge conflicts worked out
 // locally with `git merge-tree`, since GitHub only says whether there are any.
 // An agent's PRs are its branch's open PRs, plus ones attached to it, minus ones removed from it. Attachments and
-// removals are kept per agent terminal in .links.json, which the panel and the pr-link CLI (for agents) both edit:
+// removals are made in the PR tab and kept per agent terminal in .links.json:
 //   { "<terminal>": { "add": [url], "drop": [url] } }
 // A removed branch PR stays removed, even as the branch's PRs are fetched again.
 // Module scope is shared by every copy of the mod (each panel, the merge dialog), so one cache serves them all.
 import { appHome, checking, exec, home, readTextFile, setShared, shared, writeTextFile } from "herdr";
 
 const POLL = 30000; // how often an agent's PRs are fetched again while a panel shows them
-const LINKS_POLL = 3000; // how often .links.json is read again, so a pr-link from an agent shows quickly
 const LINKS = () => `${appHome()}/mods/github-pr/.links.json`;
 const CACHE = "mods/github-pr/.cache"; // hidden, so downloads don't hot-reload the mod
 export const METHOD_KEY = "agents-sidebar.github-pr-method"; // the last merge method picked
@@ -48,7 +47,7 @@ done`;
 
 const entries = new Map(); // "terminal\ncwd\nbranch" -> { at, busy, prs, error }
 const avatars = new Set(); // cached avatar files, by name
-let links = {}, linksText = null, linksAt = 0;
+let links = {}, linksText = null;
 
 // Reads .links.json; true (and every answer stale) when it changed.
 async function readLinks() {
@@ -63,20 +62,12 @@ const linksFor = (terminal) => ({ add: links[terminal]?.add ?? [], drop: links[t
 
 // Attaches a PR to an agent (on), or removes it (off, which also keeps its branch's PR from coming back).
 export async function setLink(terminal, url, on) {
-  for (let tries = 0; ; tries++) {
-    await readLinks();
-    const l = linksFor(terminal);
-    const next = on ? { add: [...new Set([...l.add, url])], drop: l.drop.filter((u) => u !== url) }
-      : { add: l.add.filter((u) => u !== url), drop: [...new Set([...l.drop, url])] };
-    const text = JSON.stringify({ ...links, [terminal]: next }, null, 2) + "\n";
-    try {
-      await writeTextFile(LINKS(), text, linksText);
-      await readLinks();
-      return;
-    } catch (e) {
-      if (tries >= 2) throw e; // changed under us (pr-link): read it again and retry
-    }
-  }
+  await readLinks();
+  const l = linksFor(terminal);
+  const next = on ? { add: [...new Set([...l.add, url])], drop: l.drop.filter((u) => u !== url) }
+    : { add: l.add.filter((u) => u !== url), drop: [...new Set([...l.drop, url])] };
+  await writeTextFile(LINKS(), JSON.stringify({ ...links, [terminal]: next }, null, 2) + "\n", linksText);
+  await readLinks();
 }
 
 // A PR's URL from what someone typed: a URL, or a number (or #number) in the agent's repo.
@@ -99,10 +90,6 @@ export function load(ctx) {
   const { cwd, branch, cx } = ctx;
   const terminal = ctx.agent?.terminal ?? null;
   if (!cwd) return null;
-  if (!checking() && Date.now() - linksAt > LINKS_POLL) {
-    linksAt = Date.now();
-    cx.spawn(async (cx) => { if (await readLinks()) cx.notify(); });
-  }
   const key = `${terminal}\n${cwd}\n${branch}`;
   let e = entries.get(key);
   if (!e) entries.set(key, (e = { at: 0, busy: false, prs: null, error: null }));
