@@ -11,15 +11,20 @@ off its card as avatars, and recent agent-to-agent messages show as fading green
 
 ## Configuring a space
 
-Each space's project lives in `~/.config/herdr-app/data/project-board/spaces.json`, by space id (`herdr-app ls`):
+A space with no project shows a call to action: **Set up project board** opens the setup dialog
+(`setup.js`, this mod with props `{ variant: "setup", space, spaceName }`). It lists the providers; picking
+one runs its `connect` (Notion: `notion-login.py`, OAuth in the browser on `localhost:8765`, the token saved
+per space in `~/.config/herdr-app/data/project-board/tokens/`), then its `projects` (Notion: the databases
+shared while connecting). With exactly one there's nothing to pick. The choice is saved, and the board reloads
+at once (the dialog bumps `shared("project-board.config-rev")`).
+
+Saved in `~/.config/herdr-app/data/project-board/spaces.json`, by space id, hand-editable:
 
 ```json
-{ "sp3f6f…": { "provider": "notion", "dataSource": "<data source id>", "assignee": "<Notion user id>" } }
+{ "sp3f6f…": { "provider": "notion", "tokenFile": "…", "assignee": "<Notion user id>", "dataSource": "<data source id>" } }
 ```
 
-`provider` names one in `providers/index.js`; the rest is that provider's settings. A space with no entry
-shows "No project for <space>" with its id. The board follows the shown space (it's on screen only in its
-own space), and re-reads the file on every refresh.
+The board follows the shown space (it's on screen only in its own space), and re-reads the file every minute.
 
 ## Providers
 
@@ -32,8 +37,8 @@ Everything else (layout, arrows, agents, PR checks) works from that shape. To ad
 ## Setup
 
 - **Notion:** `~/.config/notion-board/client.json` holds the public integration's `client_id` and
-  `client_secret`. Run `notion-login.py` once: it opens Notion's consent page and writes the token to
-  `~/.config/notion-board/token`, which the board reads every 60s.
+  `client_secret`, with `http://localhost:8765/callback` as its redirect URI. A config without `tokenFile`
+  reads `~/.config/notion-board/token` (where `notion-login.py` saves when run by hand).
 - **Agents:** a card's dotted avatar starts a herdr-chat tab named after the task, in the space's folder,
   with the task ID typed into the composer.
   Agents are matched to tasks by the task ID in their pane, tab, title, branch or space name.

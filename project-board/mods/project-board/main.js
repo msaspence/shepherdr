@@ -2,11 +2,10 @@ import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { PathBuilder, Background } from "gpui-kit";
 import { providers } from "./providers/index.js";
-import { agents, spaces, panes, terminals, theme, run, exec, home, appHome, readTextFile, shared, setShared, checking } from "herdr";
+import { CONFIG, REV_KEY, Setup, readConfig } from "./setup.js";
+import { agents, spaces, panes, terminals, theme, run, exec, home, appHome, readTextFile, shared, setShared, checking, openOverlay, props } from "herdr";
 
-// Each space's project, by space id: { "<space id>": { "provider": "notion", ...that provider's settings } }.
-// A space without an entry has no project. Re-read on every refresh, so edits show within a minute.
-const CONFIG = "data/project-board/spaces.json"; // under the app home
+// Each space's project is in setup.js's CONFIG; a space without an entry gets a call to set one up.
 const LINK_LOG = "/tmp/herdr-agent-links.jsonl";
 const LINK_TTL_MS = 10 * 60 * 1000;
 const CARD_W = 260;
@@ -51,6 +50,7 @@ function mix(a, b, amount) {
  *  glowing avatars for agents working each task, and green curves for recent agent-to-agent messages. */
 export default class ProjectBoard extends View {
   init(_props, cx) {
+    if (props()?.variant === "setup") return (this.setup = new Setup()).init(cx);
     // Carry over card positions, view and sessions saved while this mod was called notion-board.
     for (const key of [POS_KEY, SESSIONS_KEY, GRID_FROZEN_KEY, VIEW_KEY]) {
       const old = key.replace("project-board.", "notion-board.");
@@ -88,7 +88,8 @@ export default class ProjectBoard extends View {
     this.readLinks(cx);
     cx.timer.every(60_000, (cx) => this.load(cx));
     // The board shows the shown space's project: it's the board's own space whenever the board is on screen.
-    cx.timer.every(1_000, (cx) => spaces().find((s) => s.active)?.id !== this.space && this.load(cx));
+    // ...and reloads when a setup dialog saves.
+    cx.timer.every(1_000, (cx) => (spaces().find((s) => s.active)?.id !== this.space || shared(REV_KEY) !== this.rev) && this.load(cx));
     cx.timer.every(5_000, (cx) => this.readLinks(cx));
     cx.timer.every(10_000, (cx) => this.rememberSessions(cx));
     this.loadChecks(cx);
@@ -98,12 +99,13 @@ export default class ProjectBoard extends View {
   load(cx) {
     if (this.loading) return;
     this.loading = true;
+    this.rev = shared(REV_KEY);
     cx.notify();
     const space = spaces().find((s) => s.active);
     if (space?.id !== this.space) Object.assign(this, { space: space?.id, spaceName: space?.name, tasks: [], error: null, provider: null, unconfigured: false });
     cx.spawn(async (cx) => {
       try {
-        const all = JSON.parse((await readTextFile(`${appHome()}/${CONFIG}`).catch(() => null)) || "{}");
+        const { all } = await readConfig();
         const config = all[space?.id];
         const provider = config ? providers[config.provider] : null;
         if (config && !provider) throw new Error(`no provider called "${config.provider}" (have: ${Object.keys(providers).join(", ")})`);
@@ -299,10 +301,10 @@ export default class ProjectBoard extends View {
   }
 
   render(cx) {
+    if (this.setup) return this.setup.render(cx);
     const t = theme();
     // Before any tasks have loaded an error is all there is to show; after, a failed refresh keeps the last cards.
-    if (this.unconfigured)
-      return this.message(t, `No project for ${this.spaceName ?? "this space"}`, `Add one under "${this.space}" in ~/.config/herdr-app/${CONFIG}`);
+    if (this.unconfigured) return this.blankSlate(t);
     if (this.error && !this.tasks.length)
       return this.message(t, `${this.provider?.name ?? "Project board"}: ${this.error}`, this.provider?.setupHint ?? `Check ~/.config/herdr-app/${CONFIG}`);
     if (!this.tasks.length) return this.message(t, "No tasks yet", "Loading tasks…");
@@ -454,6 +456,17 @@ export default class ProjectBoard extends View {
     for (const k of keys) saved[k] = { x: Math.round(moved[k].x), y: Math.round(moved[k].y) };
     setShared(POS_KEY, saved);
     cx.notify();
+  }
+
+  // No project for this space yet: a call to set one up.
+  blankSlate(t) {
+    const open = () => openOverlay({ mod: "project-board", kind: "dialog", width: 440, height: 360,
+      props: { variant: "setup", space: this.space, spaceName: this.spaceName } });
+    return this.message(t, `Set up a project board for ${this.spaceName ?? "this space"}`,
+      "See your tasks as cards, with what blocks them and the agents working on each.")
+      .child(div().id("setup-board").mt(10).h(32).px(14).flex().items_center().rounded(8).cursor_pointer()
+        .bg(t.solid).text_color(t.solid_foreground).text_size(13).hover((s) => s.opacity(0.9))
+        .on_click(open).child("Set up project board"));
   }
 
   message(t, title, body) {

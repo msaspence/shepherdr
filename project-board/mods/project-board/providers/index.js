@@ -1,13 +1,19 @@
-// Where the board's tasks come from. Each space picks one by name in ~/.config/herdr-app/data/project-board/spaces.json.
+// Where the board's tasks come from. Each space picks one by name in ~/.config/herdr-app/data/project-board/spaces.json,
+// written by the setup dialog (setup.js).
 // To add an integration, write providers/<name>.js exporting an object like notion.js's, and list it below.
 //
 // A provider:
-//   name        shown in errors ("Couldn't refresh from <name>")
-//   icon        an svg path for the card's "open in" button
+//   name        shown in errors ("Couldn't refresh from <name>") and the setup dialog
+//   icon        an svg path for the card's "open in" button and the setup dialog
+//   description one line under its name in the setup dialog
 //   setupHint   shown under the error when nothing has loaded yet
 //   load({ config, onBoard })  resolves to the tasks to show (throws on failure); config: the space's entry in
 //               spaces.json; onBoard: Set of task keys already on the board
 //   open(task)  opens the task in its app
+//   connect({ space })  signs in (OAuth in the browser, say); resolves to the config so far, which it may store
+//               a credential for (a token file per space, say)
+//   projects(config)  resolves to [{ name, config }]: what the board could show; the picked one's config is
+//               merged in and saved as the space's entry
 //   check()     optional, run under `herdr-app check`; throws if the provider's mapping is wrong
 //
 // A task:

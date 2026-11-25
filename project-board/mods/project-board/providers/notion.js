@@ -1,13 +1,32 @@
 // The Notion provider: a Tech Tasks-shaped database (Task name, ID, Status, In Flight, Priority, Assignee,
-// Blocked by), read with the token notion-login.py saves. A space's config:
-//   { "provider": "notion", "dataSource": "<data source id>", "assignee": "<Notion user id>" }
+// Blocked by). A space's config, which the setup dialog writes:
+//   { "provider": "notion", "tokenFile": "<path>", "assignee": "<Notion user id>", "dataSource": "<data source id>" }
+// tokenFile defaults to ~/.config/notion-board/token (where notion-login.py saves when run by hand).
 // The provider contract, and the task shape every provider returns, are documented in providers/index.js.
-import { exec, home, readTextFile } from "herdr";
+import { appHome, exec, home, readTextFile } from "herdr";
 
 const STATUSES = ["In progress", "Queued", "Done"]; // Released tasks leave the board
 const PRIORITY_RANK = { High: 0, Medium: 1, Low: 2 };
 const ICON_COLORS = { red: "ansi1", green: "ansi2", yellow: "ansi3", blue: "ansi4", purple: "ansi5", pink: "ansi13", orange: "ansi11", brown: "ansi3" };
 const TOKEN = ".config/notion-board/token"; // under home
+const API = "https://api.notion.com/v1";
+
+async function notion(token, path, body) {
+  const res = await fetch(`${API}/${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Notion-Version": "2025-09-03", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message ?? `Notion ${res.status}`);
+  return json;
+}
+
+const readToken = async (config) => {
+  const token = (await readTextFile(config.tokenFile ?? `${home()}/${TOKEN}`))?.trim();
+  if (!token) throw new Error("not connected (no token)");
+  return token;
+};
 
 const keyOf = (p) => {
   const id = p.properties.ID?.unique_id;
@@ -39,30 +58,44 @@ export function toTask(p) {
 export default {
   name: "Notion",
   icon: "mods/project-board/notion.svg",
-  setupHint: `Check the token in ~/${TOKEN} (re-run notion-login.py) and the connection`,
+  description: "Your tasks from a Notion database",
+  setupHint: "Check the connection, or set the board up again",
+
+  // OAuth in the browser (notion-login.py), saving this space's token. Resolves to the config so far.
+  async connect({ space }) {
+    const tokenFile = `${appHome()}/data/project-board/tokens/${space}-notion`;
+    const script = `${appHome()}/mods/project-board/notion-login.py`;
+    // A login shell finds python3 wherever it's installed; an abandoned login still holding the port is stopped first.
+    const r = await exec("/bin/sh", ["-lc", 'pkill -f notion-login.py; exec python3 "$0" "$1"', script, tokenFile], { timeout: 330_000 });
+    if (r.code !== 0) throw new Error(r.stderr.trim().split("\n").pop() || "Notion login failed");
+    const { owner, workspace } = JSON.parse(r.stdout.trim().split("\n").pop());
+    if (!owner) throw new Error("Notion didn't say who signed in");
+    return { tokenFile, assignee: owner, workspace };
+  },
+
+  // The databases the person shared while connecting.
+  async projects(config) {
+    const token = await readToken(config);
+    const json = await notion(token, "search", { filter: { property: "object", value: "data_source" }, page_size: 100 });
+    return json.results.map((d) => ({ name: d.title?.map((t) => t.plain_text).join("") || "Untitled", config: { dataSource: d.id } }));
+  },
 
   async load({ config, onBoard }) {
     const { dataSource, assignee } = config;
     if (!dataSource || !assignee) throw new Error('the space\'s config needs "dataSource" and "assignee"');
-    const token = (await readTextFile(`${home()}/${TOKEN}`)).trim();
+    const token = await readToken(config);
     const pages = [];
     for (let cursor; ; ) {
-      const res = await fetch(`https://api.notion.com/v1/data_sources/${dataSource}/query`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Notion-Version": "2025-09-03", "Content-Type": "application/json" },
-        body: JSON.stringify({
-          page_size: 100,
-          ...(cursor ? { start_cursor: cursor } : {}),
-          filter: {
-            and: [
-              { property: "Assignee", people: { contains: assignee } },
-              { or: STATUSES.map((s) => ({ property: "Status", status: { equals: s } })) },
-            ],
-          },
-        }),
+      const json = await notion(token, `data_sources/${dataSource}/query`, {
+        page_size: 100,
+        ...(cursor ? { start_cursor: cursor } : {}),
+        filter: {
+          and: [
+            { property: "Assignee", people: { contains: assignee } },
+            { or: STATUSES.map((s) => ({ property: "Status", status: { equals: s } })) },
+          ],
+        },
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? `Notion ${res.status}`);
       pages.push(...json.results);
       if (!json.has_more) break;
       cursor = json.next_cursor;
