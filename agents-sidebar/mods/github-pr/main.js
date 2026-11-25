@@ -234,10 +234,8 @@ function checksMenu(v, pr) {
   return v_flex().gap(1).children([...pr.checks].sort((a, b) => order[a.state] - order[b.state]).map((ch, i) =>
     entry(t, `pr${pr.number}-ck-${i}`, ch.url ? (_e, cx) => cx.open_url(ch.url) : null)
       .child(checkIcon(t, ch.state)).child(avatar(t, ch.avatar, ch.name, 16))
-      .child(v_flex().flex_1().min_w(0).py(3)
-        .child(h_flex().gap(6).child(div().min_w(0).truncate().text_size(12.5).child(ch.name))
-          .when(ch.required, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Required"))))
-        .when(Boolean(ch.desc), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(ch.desc))))));
+      .child(h_flex().flex_1().min_w(0).gap(6).child(div().min_w(0).truncate().text_size(12.5).child(ch.name))
+        .when(ch.required, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Required"))))));
 }
 
 function conflictsMenu(v, pr, s) {

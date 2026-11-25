@@ -21,9 +21,9 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!){
    reviewThreads(first:100){ nodes{ isResolved path line startLine originalLine originalStartLine
     comments(first:50){ nodes{ id url body author{ login avatarUrl } } } } }
    commits(last:1){ nodes{ commit{ statusCheckRollup{ contexts(first:100){ nodes{ __typename
-    ... on CheckRun{ name title status conclusion detailsUrl isRequired(pullRequestNumber:$number)
+    ... on CheckRun{ name status conclusion detailsUrl isRequired(pullRequestNumber:$number)
       checkSuite{ app{ name logoUrl } workflowRun{ workflow{ name } } } }
-    ... on StatusContext{ context state description targetUrl avatarUrl isRequired(pullRequestNumber:$number) } } } } } } }
+    ... on StatusContext{ context state targetUrl avatarUrl isRequired(pullRequestNumber:$number) } } } } } } }
   }
  }
 }`;
@@ -98,7 +98,6 @@ async function fetchPrs(cwd, branch) {
 
 const PASS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const OPINION = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]);
-const RUN_WORDS = { SUCCESS: "Successful", NEUTRAL: "Neutral", SKIPPED: "Skipped", FAILURE: "Failing", TIMED_OUT: "Timed out", CANCELLED: "Cancelled", ACTION_REQUIRED: "Action required", STARTUP_FAILURE: "Startup failure", STALE: "Stale" };
 
 // The start of a comment's text as one plain line: no HTML, markdown marks or line breaks.
 export const snippet = (body) => (body ?? "").replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]+>/g, " ")
@@ -132,15 +131,14 @@ export function normalize(owner, repo, r) {
   const nodes = p.commits.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
   const checks = nodes.map((n) => n.__typename === "CheckRun"
     ? { key: n.name, name: n.checkSuite?.workflowRun?.workflow?.name ? `${n.checkSuite.workflowRun.workflow.name} / ${n.name}` : n.name,
-        desc: n.status !== "COMPLETED" ? (n.title ?? "In progress") : (n.title ?? RUN_WORDS[n.conclusion] ?? ""),
         state: n.status !== "COMPLETED" ? "running" : PASS.has(n.conclusion) ? "passed" : "failed",
         required: Boolean(n.isRequired), url: n.detailsUrl, avatar: n.checkSuite?.app?.logoUrl ?? null }
-    : { key: n.context, name: n.context, desc: n.description ?? "",
+    : { key: n.context, name: n.context,
         state: n.state === "SUCCESS" ? "passed" : n.state === "PENDING" || n.state === "EXPECTED" ? "running" : "failed",
         required: Boolean(n.isRequired), url: n.targetUrl, avatar: n.avatarUrl ?? null });
   const present = new Set(checks.map((c) => c.key));
   for (const key of p.baseRef?.branchProtectionRule?.requiredStatusCheckContexts ?? []) {
-    if (!present.has(key)) checks.push({ key, name: key, desc: "Expected — waiting for status to be reported", state: "missing", required: true, url: null, avatar: null });
+    if (!present.has(key)) checks.push({ key, name: key, state: "missing", required: true, url: null, avatar: null });
   }
 
   return {
