@@ -237,7 +237,7 @@ function statusMenu(v, pr, s) {
   const header = (mark, title, sub) => h_flex().gap(10).items_start().p(6)
     .child(mark)
     .child(v_flex().flex_1().min_w(0).gap(2)
-      .child(div().font_semibold().child(title))
+      .child(div().h(32).flex().items_center().text_size(15).font_semibold().child(title)) // as tall as the badge: centred on it
       .child(sub));
   const line = (text) => div().text_size(12).text_color(t.muted).child(text);
   if (!s.open) return pr.state === "MERGED"
