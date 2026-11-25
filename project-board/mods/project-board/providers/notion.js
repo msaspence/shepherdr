@@ -1,6 +1,6 @@
 // The Notion provider: a Tech Tasks-shaped database (Task name, ID, Status, In Flight, Priority, Assignee,
 // Blocked by). A space's config, which the setup dialog writes:
-//   { "provider": "notion", "tokenFile": "<path>", "assignee": "<Notion user id>", "dataSource": "<data source id>" }
+//   { "provider": "notion", "tokenFile": "<path>", "assignee": "<Notion user id>", "projects": ["<data source id>", …] }
 // tokenFile defaults to ~/.config/notion-board/token (where notion-login.py saves when run by hand).
 // The provider contract, and the task shape every provider returns, are documented in providers/index.js.
 import { appHome, exec, home, readTextFile } from "herdr";
@@ -77,15 +77,15 @@ export default {
   async projects(config) {
     const token = await readToken(config);
     const json = await notion(token, "search", { filter: { property: "object", value: "data_source" }, page_size: 100 });
-    return json.results.map((d) => ({ name: d.title?.map((t) => t.plain_text).join("") || "Untitled", config: { dataSource: d.id } }));
+    return json.results.map((d) => ({ id: d.id, name: d.title?.map((t) => t.plain_text).join("") || "Untitled" }));
   },
 
   async load({ config, onBoard }) {
-    const { dataSource, assignee } = config;
-    if (!dataSource || !assignee) throw new Error('the space\'s config needs "dataSource" and "assignee"');
+    const { projects, assignee } = config;
+    if (!projects?.length || !assignee) throw new Error('the space\'s config needs "projects" and "assignee"');
     const token = await readToken(config);
     const pages = [];
-    for (let cursor; ; ) {
+    for (const dataSource of projects) for (let cursor; ; ) {
       const json = await notion(token, `data_sources/${dataSource}/query`, {
         page_size: 100,
         ...(cursor ? { start_cursor: cursor } : {}),

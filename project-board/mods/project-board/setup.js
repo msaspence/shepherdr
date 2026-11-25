@@ -29,6 +29,7 @@ export class Setup {
     this.provider = null; // [name, provider]
     this.draft = null; // the config connect resolved to
     this.items = [];
+    this.picked = new Set(); // item ids
   }
 
   // Runs a step, showing what it throws.
@@ -49,26 +50,36 @@ export class Setup {
     this.attempt(cx, async () => {
       this.draft = await entry[1].connect({ space: props().space });
       this.items = await entry[1].projects(this.draft);
+      this.picked = new Set();
       this.step = "projects";
-      if (this.items.length === 1) await this.save(this.items[0]); // nothing to choose
+      if (this.items.length === 1) await this.save([this.items[0].id]); // nothing to choose
     });
   }
 
-  async save(item) {
-    await saveSpace(props().space, { provider: this.provider[0], ...this.draft, ...item.config });
+  async save(ids) {
+    await saveSpace(props().space, { provider: this.provider[0], ...this.draft, projects: ids });
     closeOverlay(props().overlay);
   }
 
   render() {
     const t = theme();
     const name = this.provider?.[1].name;
-    const button = (id, label, onClick) => div().id(id).h(28).px(12).flex().items_center().rounded(7).cursor_pointer()
-      .text_size(12.8).border_1().border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover))
-      .on_click(onClick).child(label);
+    const button = (id, label, onClick, primary = false) => div().id(id).h(28).px(12).flex().items_center().rounded(7)
+      .text_size(12.8)
+      .when(primary && Boolean(onClick), (el) => el.bg(t.solid).text_color(t.solid_foreground))
+      .when(primary && !onClick, (el) => el.bg(t.border).text_color(t.dim)) // disabled
+      .when(!primary, (el) => el.border_1().border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
+      .when(Boolean(onClick), (el) => el.cursor_pointer().on_click(onClick))
+      .child(label);
+    const checkbox = (on) => div().size(16).flex().flex_none().items_center().justify_center().rounded(4)
+      .when(on, (el) => el.bg(t.accent).text_color("#ffffff"))
+      .when(!on, (el) => el.border_1().border_color(t.muted))
+      .when(on, (el) => el.child(svg("mods/workspace-chrome/check.svg").size(12)));
     // Even padding and tight lines, so the space between title and sub matches the space around them.
+    // icon: an svg path, or an element (a checkbox).
     const row = (id, icon, title, sub, onClick) => h_flex().id(id).min_h(36).px(10).py(9).gap(10).rounded(7).items_center()
       .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick)
-      .when(Boolean(icon), (el) => el.child(svg(icon).size(18).flex_none().text_color(t.foreground)))
+      .when(Boolean(icon), (el) => el.child(typeof icon === "string" ? svg(icon).size(18).flex_none().text_color(t.foreground) : icon))
       .child(v_flex().flex_1().min_w(0).gap(4)
         .child(div().truncate().line_height("16px").child(title))
         .when(Boolean(sub), (el) => el.child(div().truncate().line_height("15px").text_size(12).text_color(t.muted).child(sub))));
@@ -85,8 +96,11 @@ export class Setup {
         .child(div().text_color(t.muted).child(`Finish connecting ${name} in your browser…`));
     else if (this.step === "projects")
       body = this.items.length
-        ? v_flex().gap(2).child(note(`Which ${name} database should the board show?`))
-          .children(this.items.map((item, i) => row(`project-${i}`, null, item.name, null, (_e, cx) => this.attempt(cx, () => this.save(item)))))
+        ? v_flex().gap(2).child(note(`Which ${name} databases should the board show?`))
+          .children(this.items.map((item, i) => row(`project-${i}`, checkbox(this.picked.has(item.id)), item.name, null, (_e, cx) => {
+            if (!this.picked.delete(item.id)) this.picked.add(item.id);
+            cx.notify();
+          })))
         : v_flex().gap(8).child(note(`Nothing was shared with the board. Connect again and pick your tasks database when ${name} asks.`))
           .child(h_flex().px(10).child(button("reconnect", "Connect again", (_e, cx) => this.connect(this.provider, cx))));
     else
@@ -98,7 +112,9 @@ export class Setup {
         .child(div().text_size(15).child("Set up a project board"))
         .child(div().text_size(12).text_color(t.muted).child(`For the ${props().spaceName ?? "current"} space`)))
       .child(v_flex().id("setup-body").flex_1().min_h(0).px(8).overflow_y_scrollbar().child(body))
-      .child(h_flex().px(18).py(12).flex_none().justify_end().border_t_1().border_color(t.border)
-        .child(button("cancel", "Cancel", () => closeOverlay(props().overlay))));
+      .child(h_flex().px(18).py(12).gap(8).flex_none().justify_end().border_t_1().border_color(t.border)
+        .child(button("cancel", "Cancel", () => closeOverlay(props().overlay)))
+        .when(this.step === "projects" && this.items.length > 0, (el) => el.child(button("save", "Show on board",
+          this.picked.size ? (_e, cx) => this.attempt(cx, () => this.save(this.items.filter((x) => this.picked.has(x.id)).map((x) => x.id))) : null, true))));
   }
 }

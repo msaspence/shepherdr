@@ -15,13 +15,14 @@ A space with no project shows a call to action: **Set up project board** opens t
 (`setup.js`, this mod with props `{ variant: "setup", space, spaceName }`). It lists the providers; picking
 one runs its `connect` (Notion: `notion-login.py`, OAuth in the browser on `localhost:8765`, the token saved
 per space in `~/.config/herdr-app/data/project-board/tokens/`), then its `projects` (Notion: the databases
-shared while connecting). With exactly one there's nothing to pick. The choice is saved, and the board reloads
+shared while connecting), as a checklist: the board shows every one ticked, merged (**Show on board**). With
+exactly one there's nothing to pick. The choice is saved as `projects`, and the board reloads
 at once (the dialog bumps `shared("project-board.config-rev")`).
 
 Saved in `~/.config/herdr-app/data/project-board/spaces.json`, by space id, hand-editable:
 
 ```json
-{ "sp3f6f…": { "provider": "notion", "tokenFile": "…", "assignee": "<Notion user id>", "dataSource": "<data source id>" } }
+{ "sp3f6f…": { "provider": "notion", "tokenFile": "…", "assignee": "<Notion user id>", "projects": ["<data source id>", …] } }
 ```
 
 The board follows the shown space (it's on screen only in its own space), and re-reads the file every minute.
