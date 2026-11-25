@@ -52,7 +52,8 @@ export class Setup {
       this.items = await entry[1].projects(this.draft);
       this.picked = new Set();
       this.step = "projects";
-      if (this.items.length === 1) await this.save([this.items[0].id]); // nothing to choose
+      const usable = this.items.filter((x) => !x.unusable);
+      if (usable.length === 1 && this.items.length === 1) await this.save([usable[0].id]); // nothing to choose
     });
   }
 
@@ -78,11 +79,11 @@ export class Setup {
     // Even padding and tight lines, so the space between title and sub matches the space around them.
     // icon: an svg path, or an element (a checkbox).
     const row = (id, icon, title, sub, onClick) => h_flex().id(id).min_h(36).px(10).py(9).gap(10).rounded(7).items_center()
-      .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick)
+      .when(Boolean(onClick), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick))
       .when(Boolean(icon), (el) => el.child(typeof icon === "string" ? svg(icon).size(18).flex_none().text_color(t.foreground) : icon))
       .child(v_flex().flex_1().min_w(0).gap(4)
         .child(div().truncate().line_height("16px").child(title))
-        .when(Boolean(sub), (el) => el.child(div().truncate().line_height("15px").text_size(12).text_color(t.muted).child(sub))));
+        .when(Boolean(sub), (el) => el.child(div().line_height("15px").text_size(12).text_color(t.muted).child(sub))));
     const note = (text, color = t.muted) => div().px(10).py(6).text_size(12.5).text_color(color).child(text);
 
     let body;
@@ -97,10 +98,12 @@ export class Setup {
     else if (this.step === "projects")
       body = this.items.length
         ? v_flex().gap(2).child(note(`Which ${name} databases should the board show?`))
-          .children(this.items.map((item, i) => row(`project-${i}`, checkbox(this.picked.has(item.id)), item.name, null, (_e, cx) => {
-            if (!this.picked.delete(item.id)) this.picked.add(item.id);
-            cx.notify();
-          })))
+          .children(this.items.map((item, i) => item.unusable
+            ? row(`project-${i}`, checkbox(false), item.name, item.unusable, null).opacity(0.5)
+            : row(`project-${i}`, checkbox(this.picked.has(item.id)), item.name, null, (_e, cx) => {
+              if (!this.picked.delete(item.id)) this.picked.add(item.id);
+              cx.notify();
+            })))
         : v_flex().gap(8).child(note(`Nothing was shared with the board. Connect again and pick your tasks database when ${name} asks.`))
           .child(h_flex().px(10).child(button("reconnect", "Connect again", (_e, cx) => this.connect(this.provider, cx))));
     else

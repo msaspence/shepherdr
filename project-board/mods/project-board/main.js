@@ -108,10 +108,12 @@ export default class ProjectBoard extends View {
         const { all } = await readConfig();
         const config = all[space?.id];
         const provider = config ? providers[config.provider] : null;
+        // Set before loading, so a failed load shows its error rather than the setup call.
+        if (space?.id === this.space) Object.assign(this, { unconfigured: !config, provider });
         if (config && !provider) throw new Error(`no provider called "${config.provider}" (have: ${Object.keys(providers).join(", ")})`);
         const tasks = provider ? await provider.load({ config, onBoard: new Set(Object.keys(shared(POS_KEY) ?? {})) }) : [];
         if (space?.id !== this.space) return; // switched space while loading
-        Object.assign(this, { unconfigured: !config, provider, tasks });
+        this.tasks = tasks;
         this.error = null;
         this.freezeOldGrid();
         this.tasks.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
@@ -306,7 +308,8 @@ export default class ProjectBoard extends View {
     // Before any tasks have loaded an error is all there is to show; after, a failed refresh keeps the last cards.
     if (this.unconfigured) return this.blankSlate(t);
     if (this.error && !this.tasks.length)
-      return this.message(t, `${this.provider?.name ?? "Project board"}: ${this.error}`, this.provider?.setupHint ?? `Check ~/.config/herdr-app/${CONFIG}`);
+      return this.message(t, `${this.provider?.name ?? "Project board"}: ${this.error}`, this.provider?.setupHint ?? `Check ~/.config/herdr-app/${CONFIG}`)
+        .child(this.setupButton(t, "Set up again"));
     if (!this.tasks.length) return this.message(t, "No tasks yet", "Loading tasks…");
 
     const { x: ox, y: oy, z } = this.view;
@@ -460,13 +463,18 @@ export default class ProjectBoard extends View {
 
   // No project for this space yet: a call to set one up.
   blankSlate(t) {
-    const open = () => openOverlay({ mod: "project-board", kind: "dialog", width: 440, height: 360,
-      props: { variant: "setup", space: this.space, spaceName: this.spaceName } });
     return this.message(t, `Set up a project board for ${this.spaceName ?? "this space"}`,
       "See your tasks as cards, with what blocks them and the agents working on each.")
-      .child(div().id("setup-board").mt(10).h(32).px(14).flex().items_center().rounded(8).cursor_pointer()
-        .bg(t.solid).text_color(t.solid_foreground).text_size(13).hover((s) => s.opacity(0.9))
-        .on_click(open).child("Set up project board"));
+      .child(this.setupButton(t, "Set up project board"));
+  }
+
+  // Opens the setup dialog (setup.js) for this space.
+  setupButton(t, label) {
+    const open = () => openOverlay({ mod: "project-board", kind: "dialog", width: 440, height: 360,
+      props: { variant: "setup", space: this.space, spaceName: this.spaceName } });
+    return div().id("setup-board").mt(10).h(32).px(14).flex().items_center().rounded(8).cursor_pointer()
+      .bg(t.solid).text_color(t.solid_foreground).text_size(13).hover((s) => s.opacity(0.9))
+      .on_click(open).child(label);
   }
 
   message(t, title, body) {

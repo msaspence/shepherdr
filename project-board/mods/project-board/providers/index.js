@@ -12,7 +12,8 @@
 //   open(task)  opens the task in its app
 //   connect({ space })  signs in (OAuth in the browser, say); resolves to the config so far, which it may store
 //               a credential for (a token file per space, say)
-//   projects(config)  resolves to [{ id, name }]: what the board could show (Notion: databases); the ids
+//   projects(config)  resolves to [{ id, name, unusable? }]: what the board could show (Notion: databases), with
+//               unusable saying why one can't be picked (shown, greyed out); the ids
 //               picked are saved as the space's config.projects, which load reads
 //   check()     optional, run under `herdr-app check`; throws if the provider's mapping is wrong
 //
