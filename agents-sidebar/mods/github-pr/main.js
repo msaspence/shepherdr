@@ -1,7 +1,7 @@
 // github-pr: the agent's open pull request in the context panel (agents-sidebar-context-panel). Summary lines under
 // a "Pull Request" header, each opening a dropdown, and a PR tab with the same rows: collapsible when the pane is
 // narrow, a list and a detail pane when it's wide (nested menus then become nested collapsibles).
-// Copies: the merge dialog (props.variant "merge"), a review comment's popover (props.variant "comment"), and the
+// Copies: a review comment's popover (props.variant "comment"), and the
 // panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, Popup, TextView } from "gpui-base";
@@ -262,11 +262,12 @@ function statusMenu(v, pr, s) {
 
   const method = mergeMethod(pr);
   const busy = state.autoBusy === pr.url;
-  const auto = (on) => (_e, cx) => {
+  // Runs a GitHub action for this PR, showing it busy until it's done and any error under the button.
+  const act = (run) => (_e, cx) => {
     state.autoBusy = pr.url;
     state.autoError = null;
     cx.spawn(async (cx) => {
-      try { await setAutoMerge(pr, on); } catch (e) { state.autoError = String(e?.message ?? e); }
+      try { await run(); } catch (e) { state.autoError = String(e?.message ?? e); }
       state.autoBusy = null;
       cx.notify();
     });
@@ -314,18 +315,19 @@ function statusMenu(v, pr, s) {
   };
   const plain = (id, label, onClick) => look(h_flex().id(id).px(10).rounded(6).font_semibold(), false, Boolean(onClick))
     .when(Boolean(onClick), (el) => el.on_click(onClick)).child(label);
-  const openMerge = (_e, cx) => {
-    state.open = null;
-    openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
-    cx.notify();
-  };
-  const action = pr.autoMerge ? plain(`auto-off-${pr.number}`, busy ? "Disabling…" : "Disable auto-merge", busy ? null : auto(false))
-    : s.ready ? split(`merge-${pr.number}`, METHODS[method], true, true, openMerge)
-    : pr.canAuto ? split(`auto-on-${pr.number}`, busy ? "Enabling…" : `Enable auto-merge (${method})`, false, !busy, auto(true))
+  const auto = (on) => act(() => setAutoMerge(pr, on));
+  const working = (text) => h_flex().gap(6).items_center().child(spinner(t)).child(text);
+  const action = pr.autoMerge ? plain(`auto-off-${pr.number}`, busy ? working("Disabling…") : "Disable auto-merge", busy ? null : auto(false))
+    : s.ready ? split(`merge-${pr.number}`, busy ? working("Merging…") : METHODS[method], true, !busy, act(() => merge(pr, method)))
+    : pr.canAuto ? split(`auto-on-${pr.number}`, busy ? working("Enabling…") : `Enable auto-merge (${method})`, false, !busy, auto(true))
     : split(`merge-${pr.number}`, METHODS[method], true, false, null);
   return v_flex().gap(4)
     .child(header(mark, s.ready ? "Ready to merge" : "Merging is blocked", sub))
-    .child(v_flex().pl(48).pr(6).pb(4).gap(4).child(h_flex().child(action))
+    .child(v_flex().pl(48).pr(6).pb(4).gap(4)
+      .when(Boolean(pr.autoMerge), (el) => el.child(h_flex().gap(6).items_center().text_size(12).text_color(t.muted)
+        .child(icon("clock-hands", c.green, 12))
+        .child(div().flex_1().min_w(0).child(`Auto-merge enabled: ${METHODS[pr.autoMerge] ?? "merges"} once all requirements are met`))))
+      .child(h_flex().child(action))
       .when(Boolean(state.autoError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.autoError))));
 }
 
@@ -598,15 +600,10 @@ export default class GithubPr extends View {
     const p = props() ?? {};
     this.variant = p.variant ?? null;
     if (this.variant === "attach") this.initAttach(p, cx);
-    if (this.variant === "merge") {
-      this.method = mergeMethod(p.pr);
-      this.deleteBranch = false;
-    }
   }
 
   render() {
     const t = theme();
-    if (this.variant === "merge") return this.mergeDialog(t);
     if (this.variant === "comment") return this.comment(t);
     if (this.variant === "attach") return this.attachDialog(t);
     return div();
@@ -719,46 +716,5 @@ export default class GithubPr extends View {
           .child(ghButton(t, "gh-comment", c.url)))
         .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`)))
         .child(TextView.markdown("comment-body", c.body || "_No text_").text_size(12.5)));
-  }
-
-  mergeDialog(t) {
-    const pr = props().pr;
-    const radio = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded_full().border_1()
-      .border_color(on ? t.accent : t.input).when(on, (el) => el.child(div().size(6).rounded_full().bg(t.accent)));
-    const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
-      .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).child(icon("check", t.accent_foreground, 11)));
-    const option = (id, mark, label, onClick) => h_flex().id(id).h(30).px(8).gap(10).items_center().rounded(6).cursor_pointer()
-      .hover((s) => s.bg(t.hover)).on_click(onClick).child(mark).child(label);
-    const button = (id, label, primary, onClick) => div().id(id).h(28).px(12).flex().items_center().rounded(7).text_size(12.8)
-      .when(primary, (el) => el.bg(t.solid).text_color(t.solid_foreground))
-      .when(!primary, (el) => el.border_1().border_color(t.border).hover((s) => s.bg(t.hover)))
-      .when(Boolean(onClick), (el) => el.cursor_pointer().on_click(onClick)).when(!onClick, (el) => el.opacity(0.5))
-      .child(label);
-    return v_flex().id("merge").size_full().bg(t.popover).text_color(t.foreground).text_size(13)
-      .child(v_flex().px(18).pt(16).pb(8).gap(3).flex_none()
-        .child(div().text_size(15).child(`Merge #${pr.number}`))
-        .child(div().text_size(12).text_color(t.muted).truncate().child(pr.title)))
-      .child(v_flex().flex_1().min_h(0).px(10).gap(1)
-        .children(pr.methods.map((m) => option(`m-${m}`, radio(this.method === m), METHODS[m], (_e, cx) => { this.method = m; cx.notify(); })))
-        .child(div().h(1).mx(8).my(6).bg(t.border))
-        .child(option("delete-branch", box(this.deleteBranch), `Delete ${pr.head} on GitHub`, (_e, cx) => { this.deleteBranch = !this.deleteBranch; cx.notify(); }))
-        .when(Boolean(this.error), (el) => el.child(div().px(8).pt(6).text_size(12).text_color(t.blocked).child(this.error))))
-      .child(h_flex().px(18).py(12).gap(8).flex_none().justify_end().border_t_1().border_color(t.border)
-        .child(button("cancel", "Cancel", false, () => closeOverlay(props().overlay)))
-        .child(button("do-merge", this.busy ? "Merging…" : METHODS[this.method], true, this.busy ? null : (_e, cx) => {
-          this.busy = true;
-          this.error = null;
-          cx.spawn(async (cx) => {
-            try {
-              await merge(pr, this.method, this.deleteBranch);
-              closeOverlay(props().overlay);
-            } catch (e) {
-              this.error = String(e?.message ?? e);
-            }
-            this.busy = false;
-            cx.notify();
-          });
-          cx.notify();
-        })));
   }
 }

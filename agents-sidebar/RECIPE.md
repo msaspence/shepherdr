@@ -169,8 +169,8 @@ Summary lines under "Pull Request": `#n` (dim, in the icon's place) + title (cli
 browser), then indented 8px: the repo (`book-marked.svg`, owner/name; only when some PR shown isn't from the
 space's repo, and then on every PR), status (an
 indicator, first that applies: red ring for conflicts, approved/changes/pending arcs when changes are requested,
-passed/running/failed/not-reporting arcs when checks fail, green check when ready; dropdown with Merge… (a
-dialog: method, delete the branch on GitHub) and Auto-merge), changes, reviews, comments (review-thread and conversation
+passed/running/failed/not-reporting arcs when checks fail, green check when ready; dropdown with Merge (merges at once
+with the method the caret picks) and Auto-merge), changes, reviews, comments (review-thread and conversation
 comments grouped by author, each labelled file + lines, or the start of its text; one opens in a popup), checks (required ones not reporting come from branch protection) and
 conflicts (worked out locally: `git fetch origin <base>` then `git merge-tree --write-tree` against HEAD, only
 when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list replaces the menu with a back row.

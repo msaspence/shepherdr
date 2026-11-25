@@ -17,7 +17,7 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!){
   mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
   pullRequest(number:$number){
    number title url state isDraft mergeable mergeStateStatus reviewDecision additions deletions changedFiles
-   baseRefName headRefName headRepository{ nameWithOwner }
+   baseRefName headRefName
    viewerCanEnableAutoMerge viewerCanDisableAutoMerge autoMergeRequest{ mergeMethod }
    baseRef{ branchProtectionRule{ requiredStatusCheckContexts } }
    reviewRequests(first:30){ nodes{ requestedReviewer{ __typename ... on User{ login avatarUrl } ... on Team{ name avatarUrl } } } }
@@ -138,7 +138,9 @@ export function load(ctx) {
       } catch (err) {
         e.error = String(err?.message ?? err);
       }
-      for (const url of waiting) attaching.get(terminal)?.delete(url);
+      // Only a fresh answer settles attaching PRs: one that started before the link file was re-read can miss
+      // them, and dropping their loading rows then left a gap until the refetch.
+      if (started === gen) for (const url of waiting) attaching.get(terminal)?.delete(url);
       e.at = started === gen ? Date.now() : 1;
       e.busy = false;
       cx.notify();
@@ -230,9 +232,10 @@ export function normalize(owner, repo, r) {
     owner, repo, number: p.number, title: p.title, url: p.url, draft: p.isDraft, state: p.state,
     mergeable: p.mergeable, mergeState: p.mergeStateStatus, decision: p.reviewDecision,
     additions: p.additions, deletions: p.deletions, files: p.changedFiles,
-    base: p.baseRefName, head: p.headRefName, headRepo: p.headRepository?.nameWithOwner ?? null,
+    base: p.baseRefName, head: p.headRefName,
     methods: [r.squashMergeAllowed && "squash", r.mergeCommitAllowed && "merge", r.rebaseMergeAllowed && "rebase"].filter(Boolean),
-    autoMerge: Boolean(p.autoMergeRequest), canAuto: p.viewerCanEnableAutoMerge || p.viewerCanDisableAutoMerge,
+    autoMerge: p.autoMergeRequest?.mergeMethod?.toLowerCase() ?? null, // its method, or null when off
+    canAuto: p.viewerCanEnableAutoMerge || p.viewerCanDisableAutoMerge,
     reviews, comments: [...general, ...comments], checks, conflicts: null,
   };
 }
@@ -287,16 +290,15 @@ export const avatarPath = (url) => (url && avatars.has(avatarName(url)) ? `${CAC
 
 export const mergeMethod = (pr) => (pr.methods.includes(shared(METHOD_KEY)) ? shared(METHOD_KEY) : pr.methods[0] ?? "merge");
 
-// Merges, then deletes the head branch on GitHub if asked (not the local one: an agent may be working in it).
-export async function merge(pr, method, deleteBranch) {
-  if (shared(METHOD_KEY) !== method) setShared(METHOD_KEY, method);
+export async function merge(pr, method) {
   await gh(["pr", "merge", pr.url, `--${method}`]);
-  if (deleteBranch && pr.headRepo) await gh(["api", "-X", "DELETE", `repos/${pr.headRepo}/git/refs/heads/${pr.head}`]);
+  pr.state = "MERGED"; // as for auto-merge below: no stale "open" between the merge and the refetch
   invalidate();
 }
 
 export async function setAutoMerge(pr, on) {
   await gh(["pr", "merge", pr.url, ...(on ? ["--auto", `--${mergeMethod(pr)}`] : ["--disable-auto"])]);
+  pr.autoMerge = on ? mergeMethod(pr) : null; // show the new state until the refetch lands, not the stale one in between
   invalidate();
 }
 
