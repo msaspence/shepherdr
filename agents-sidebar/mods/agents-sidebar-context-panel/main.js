@@ -65,6 +65,7 @@ export default class Panel extends View {
   }
 
   refresh(cx) {
+    loadTabMods(cx, enabledMods()); // picks up a tab mod that was edited since
     const cwd = this.agent()?.cwd;
     if (!cwd || this.busy) return;
     this.busy = true;

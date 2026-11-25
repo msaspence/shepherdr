@@ -49,10 +49,15 @@ export async function scanTabMods() {
   if (JSON.stringify(next) !== JSON.stringify(shared(KEY))) setShared(KEY, next);
 }
 
-// A mod's code runs only once a copy of it is shown, so each mod that hasn't registered, or whose main.js
-// changed since it was opened, is opened in a 1px frameless window (props["context-panel"] = "load"; it draws
+// A mod's code runs only once a copy of it is shown, so each mod that hasn't registered, or whose .js files
+// changed since it was opened (panels check every few seconds), is opened in a 1px frameless window (props["context-panel"] = "load"; it draws
 // nothing there) and closed again; its module code registers as it loads.
-const loaded = new Map(); // mod -> its main.js source when it was opened
+const loaded = new Map(); // mod -> its .js files' text when it was opened
+// Every top-level .js file of a mod, so a change to any module it imports counts.
+const sourceOf = async (folder) => {
+  const files = (await readdir(folder)).filter((f) => f.endsWith(".js")).sort();
+  return (await Promise.all(files.map((f) => readFile(`${folder}/${f}`, "utf8")))).join("\0");
+};
 const loading = new Set();
 export async function loadTabMods(cx, mods) {
   const dir = `${appHome()}/mods`;
@@ -60,7 +65,7 @@ export async function loadTabMods(cx, mods) {
   for (const mod of mods) {
     if (loading.has(mod)) continue;
     try {
-      const source = await readFile(`${dir}/${mod}/main.js`, "utf8");
+      const source = await sourceOf(`${dir}/${mod}`);
       if (registry()[mod] && loaded.get(mod) === source) continue;
       loaded.set(mod, source);
       loading.add(mod);
