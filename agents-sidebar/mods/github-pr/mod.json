@@ -1,5 +1,5 @@
 {
   "place": "none",
   "title": "GitHub PR",
-  "context-panel": { "title": "PR" }
+  "context-panel": { "title": "Pull Request" }
 }

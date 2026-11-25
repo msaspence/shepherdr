@@ -376,7 +376,7 @@ function createButton(t, ctx) {
   const { state } = ctx;
   const asked = `${ctx.agent.terminal}\n${ctx.branch}`;
   if (state.askedFor === asked) return smallButton(t, "gh-create-pr", "check", "Asked the agent", null);
-  return smallButton(t, "gh-create-pr", "git-pull-request", "Create PR", (_e, cx) => {
+  return smallButton(t, "gh-create-pr", "git-pull-request", "Create New", (_e, cx) => {
     state.askedFor = asked;
     state.linkError = null;
     const text = ["main", "master", null].includes(ctx.branch ?? null)
@@ -391,14 +391,14 @@ function createButton(t, ctx) {
   });
 }
 
-// Create PR and Attach PR, side by side, under the PRs. Attach opens a dialog to pick any repo's open PR.
+// Create New and Attach Existing, side by side, under the PRs. Attach Existing opens a dialog to pick any repo's open PR.
 function actions(t, ctx) {
   const { state } = ctx;
   state.shown = (load(ctx)?.prs ?? []).map((pr) => pr.url);
-  return v_flex().gap(4).px(4).pt(6)
+  return v_flex().gap(4).px(4).pt(10)
     .child(h_flex().gap(6).items_center()
       .child(createButton(t, ctx))
-      .child(smallButton(t, "gh-attach-open", "git-merge", "Attach PR", (_e, cx) => {
+      .child(smallButton(t, "gh-attach-open", "git-merge", "Attach Existing", (_e, cx) => {
         try {
           const space = spaces().find((sp) => sp.tabs?.some((tb) => tb.id === ctx.agent.tab));
           openOverlay({ mod: MOD, kind: "dialog", width: 480, height: 520,
@@ -424,10 +424,16 @@ function loadingRows(t, ctx, prs) {
   });
 }
 
+// How many PRs the agent shows (loading ones too), for the header and the tab's name.
+const prCount = (ctx) => {
+  const e = load(ctx);
+  return (e?.prs?.length ?? 0) + loadingRows(ctx.t, ctx, e?.prs).length;
+};
+
 const register = {
+  title: (ctx) => (prCount(ctx) > 1 ? "Pull Requests" : "Pull Request"),
   header: (ctx) => {
-    const e = load(ctx);
-    const n = (e?.prs?.length ?? 0) + loadingRows(ctx.t, ctx, e?.prs).length;
+    const n = prCount(ctx);
     return n > 1 ? "Pull Requests" : n || ctx.agent?.terminal ? "Pull Request" : null;
   },
   summary: (ctx) => {

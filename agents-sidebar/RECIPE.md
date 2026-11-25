@@ -155,14 +155,15 @@ but they share one JS runtime. A tab mod offers itself in its `mod.json` with
 };
 ```
 
-`header` (optional) is a label over the mod's Summary lines: a string, or `(ctx) => string | null`.
+`header` (optional) is a label over the mod's Summary lines (13px, semibold, `dim`): a string, or `(ctx) => string | null`.
+`title` (optional) names the tab for this agent, `(ctx) => string`, else mod.json's title.
 `ctx` is `{ t, cx, agent, cwd, branch, width, state, show, line }`: the theme, the panel's `cx` (spawn fetches
 on it; `cx.notify()` redraws the panel), the agent's pane (`panes()` entry), its folder and branch, the pane's
 width, an object the panel keeps for this mod (UI state such as an open dropdown), `show(tabId)` to switch the
 panel's tab, and the Summary's own row builder. Handlers in the returned elements get the panel's `cx`.
 The panel scans `mods/*/mod.json` for tab mods when it opens, so a newly installed one shows without the dialog.
 
-**github-pr** (`mods/github-pr`, tab "PR"): the agent's branch's open pull request, from `gh pr list --head`
+**github-pr** (`mods/github-pr`, tab "Pull Request", "Pull Requests" with more than one): the agent's branch's open pull request, from `gh pr list --head`
 and one GraphQL query per PR (`data.js`, cached per folder and branch, refetched every 30s while shown).
 Summary lines under "Pull Request": repo + `#n` (click: the PR tab; GitHub icon: the browser), status (an
 indicator, first that applies: red ring for conflicts, approved/changes/pending arcs when changes are requested,
@@ -175,10 +176,10 @@ In the PR tab the same rows expand in place below 560px, and from 560px are a li
 content; nested lists and comments then expand in place. An agent's PRs are its branch's open PRs plus ones attached to it, minus ones removed from it (a removed
 branch PR isn't added back). Kept per agent terminal in `mods/github-pr/.links.json` (`{ "<terminal>": { "add":
 [url], "drop": [url] } }`, git-ignored). The PR tab's repo heading has an × to remove it. Under the PRs in the PR tab (in the Summary only while there are none), two small
-buttons side by side: Create PR, then Attach PR (a 480×520 dialog: a repository picker, defaulting to the
+buttons side by side: Create New, then Attach Existing (a 480×520 dialog: a repository picker, defaulting to the
 space's folder's repo, filled from `gh api user/repos` (first 100, most recently pushed), then that repo's open
 PRs with a filter; clicking one attaches it, PRs already shown are greyed. Herdr refuses `InputState.new` during
-render, so the inputs are made in the dialog's init). Create PR, which `hc send`s the agent a message asking it to open one (on
+render, so the inputs are made in the dialog's init). Create New, which `hc send`s the agent a message asking it to open one (on
 main/master: to branch first), then reads "Asked the agent". Agents can't change their PRs themselves yet:
 Herdr has no way for a mod to give an agent tools. Merged and closed attached PRs show as such.
 Needs `gh` signed in. Avatars are round, check app logos

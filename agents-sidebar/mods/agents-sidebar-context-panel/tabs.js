@@ -2,7 +2,8 @@
 //
 // A mod offers a tab (and/or Summary lines) by declaring `"context-panel": { "title": "My tab" }` in its mod.json
 // and registering on a global from its main.js. Mods share one JS runtime, though they can't import each other:
-//   (globalThis.contextPanel ??= {})["<mod>"] = { render?(ctx), summary?(ctx), header? };
+//   (globalThis.contextPanel ??= {})["<mod>"] = { render?(ctx), summary?(ctx), header?, title?(ctx) };
+// title names the tab for this agent (else mod.json's title).
 // render gives the tab's content, summary a line (or lines) for the Summary tab, header an optional label over
 // those lines (a string, or a function of ctx returning one or null). All get ctx = { t, cx, agent, cwd, branch,
 // width, state, show(tab), line(id, icon, text, right?) }: cx the panel's, state an object the panel keeps for

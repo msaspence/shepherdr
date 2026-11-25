@@ -101,7 +101,7 @@ export default class Panel extends View {
       .on_size_change((size, cx) => this.sized(size, cx))
       .child(div().w(1).h_full().flex_none().bg(t.border))
       .child(v_flex().flex_1().min_w(0).h_full()
-      .child(this.tabs(t))
+      .child(this.tabs(t, cx))
       .child(HERDR_TABS.has(this.active)
         ? v_flex().id("panel-body").flex_1().min_h(0).p(4).child(this.herdrTab(t, this.active, cx))
         : v_flex().id("panel-body").flex_1().min_h(0).p(10).gap(2).overflow_y_scrollbar().child(this.content(t, cx))));
@@ -162,8 +162,13 @@ export default class Panel extends View {
       line: (lid, icon, text, right) => this.line(t, lid, icon, text, right) };
   }
 
-  tabs(t) {
-    const TABS = tabs();
+  tabs(t, cx) {
+    // A registered mod can name its tab for this agent: title(ctx) (a PR count, say); else its mod.json title.
+    const TABS = tabs().map((x) => {
+      const fn = registry()[x.id]?.title;
+      if (typeof fn !== "function") return x;
+      try { return { ...x, title: fn(this.ctx(t, x.id, cx)) || x.title }; } catch { return x; }
+    });
     const current = TABS.find((x) => x.id === this.active) ?? TABS[0];
     const select = (id) => (_e, cx) => { this.active = id; this.menuOpen = false; cx.notify(); };
     const bar = h_flex().h(36).px(8).gap(2).flex_none().items_center();
@@ -211,7 +216,7 @@ export default class Panel extends View {
 
   // A registered mod's optional label over its Summary lines.
   header(t, id, text) {
-    return div().id(`summary-header-${id}`).px(4).pt(12).pb(2).text_size(11.5).font_semibold().text_color(t.dim).child(text);
+    return div().id(`summary-header-${id}`).px(4).pt(14).pb(4).text_size(13).font_semibold().text_color(t.dim).child(text);
   }
 
   // opens-in's button-icon: its own dropdown ("menu" variant) for this folder.
