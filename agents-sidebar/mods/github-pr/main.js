@@ -20,6 +20,10 @@ const stop = (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
 const C = (t) => ({ green: t.ansi2, gold: t.ansi3, red: t.ansi1, grey: t.dim });
 
 const icon = (name, color, size = 14) => svg(I(name)).size(size).flex_none().text_color(color);
+// A running check: the gold dot inside a turning ring.
+const running = (t, size = 14) => div().relative().size(size).flex_none()
+  .child(svg(I("dot")).absolute().inset_0().size(size).text_color(C(t).gold))
+  .child(svg(I("spinner")).absolute().inset_0().size(size).text_color(C(t).gold).spin(900));
 
 function avatar(t, url, login, size = 18) {
   const file = avatarPath(url);
@@ -64,7 +68,7 @@ function checksIcon(t, pr, s) {
   const c = C(t);
   if (s.checks.failedRequired) return icon("hexagon-alert", c.red);
   if (s.checks.failed) return icon("triangle-alert", c.red);
-  if (s.checks.running) return icon("dot", c.gold);
+  if (s.checks.running) return running(t);
   if (s.checks.missing) return icon("hexagon-alert", c.grey);
   return icon("circle-check", pr.checks.length ? c.green : t.dim);
 }
@@ -84,7 +88,7 @@ const reviewIcon = (t, state) => {
 };
 const checkIcon = (t, state) => {
   const c = C(t);
-  return state === "passed" ? icon("circle-check", c.green) : state === "running" ? icon("dot", c.gold)
+  return state === "passed" ? icon("circle-check", c.green) : state === "running" ? running(t)
     : state === "failed" ? icon("circle-x", c.red) : icon("hexagon-alert", c.grey);
 };
 
