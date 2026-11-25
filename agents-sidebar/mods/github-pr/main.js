@@ -165,14 +165,14 @@ function items(t, pr, s, ctx) {
   const counted = (name, color, n) => n ? [h_flex().gap(3).items_center().child(icon(name, color, 13)).when(n > 1, (el) => el.child(num(n, t.muted)))] : [];
   const p = `pr${pr.number}`;
   return [
-    // Its repo, only when some PR shown isn't from the space's repo (then for every PR: see showRepo).
-    ctx.showRepo && { key: "repo", icon: icon("book-marked", t.muted), label: `${pr.owner}/${pr.repo}` },
     { key: "title", icon: div().flex_none().text_color(t.dim).child(`#${pr.number}`), label: pr.title,
       right: [ghButton(t, `${p}-gh`, pr.url)],
       click: (_e, cx) => { ctx.show(MOD); cx.notify(); },
       body: () => v_flex().gap(6).p(6)
         .child(div().font_semibold().child(pr.title))
         .child(h_flex().gap(6).text_size(12).text_color(t.dim).child(`${pr.head} → ${pr.base}`).when(pr.draft, (el) => el.child(div().text_color(c.gold).child("Draft")))) },
+    // Its repo, only when some PR shown isn't from the space's repo (then for every PR: see showRepo).
+    ctx.showRepo && { key: "repo", icon: icon("book-marked", t.muted), label: `${pr.owner}/${pr.repo}` },
     { key: "status", icon: indicator(t, pr, s), label: s.text, right: [], chevron: true,
       body: (v) => statusMenu(v, pr, s) },
     { key: "changes", icon: icon("file-diff", t.muted), label: "Changes",
@@ -284,7 +284,7 @@ function conflictsMenu(v, pr) {
 // A row's head: icon, label, what's on the right, a chevron when it opens something.
 function rowHead(t, id, it, { active, open } = {}) {
   return h_flex().id(id).h(30).px(4).gap(8).items_center().flex_none().rounded(6)
-    .when(it.key !== "repo" && it.key !== "title", (el) => el.ml(8)) // indented under the PR's own rows
+    .when(it.key !== "title", (el) => el.ml(8)) // indented under the PR's number and title
     .when(Boolean(it.body || it.click), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
     .when(Boolean(active), (el) => el.bg(t.selected))
     .child(it.icon)
