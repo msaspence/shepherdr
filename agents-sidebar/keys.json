@@ -1,5 +1,7 @@
 {
   "layout:agents-sidebar": {
-    "cmd-b": "agents-sidebar-agents.collapse"
+    "cmd-b": "agents-sidebar-agents.collapse",
+    "cmd-]": "agents-sidebar-agents.next",
+    "cmd-[": "agents-sidebar-agents.prev"
   }
 }

@@ -8,7 +8,7 @@
 import Agents, { RAIL, toggleSidebar } from "./agents-base.js";
 import { div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { appHome, checking, closeOverlay, updates, settings, knownAgents, layout, nextCommand, openOverlay, panes, props, run, setShared, shared, spaces, terminals, theme } from "herdr";
+import { appHome, checking, closeOverlay, focused, updates, settings, knownAgents, layout, nextCommand, openOverlay, panes, props, run, setShared, shared, spaces, terminals, theme } from "herdr";
 import { readdir, readFile } from "fs/promises";
 import { dragCursor, drawerFade, drawerHover, hasMod, loadMods, menuMod, sidebarIdle } from "./drawer.js";
 
@@ -164,10 +164,21 @@ export default class SideAgents extends Agents {
         if (c === "collapse") { if (!inDrawer) { if (this.drawerId) closeOverlay(this.drawerId); this.drawerId = null; toggleSidebar(); } }
         // open: open the drawer (a key can bind agents-sidebar-agents.open).
         else if (c === "open") { if (!inDrawer) this.openDrawerNow(); }
+        // next/prev: agent.next/prev, but wrapping within the listed agents. Herdr appends unlisted
+        // ones (archived, other spaces) after the published order, so agent.next runs into them.
+        else if (c === "next" || c === "prev") { if (!inDrawer) this.step(c === "next" ? 1 : -1); }
         else if (c.startsWith("peek:")) this.peek(c.slice(5));
         else if (c.startsWith("menu:")) openOverlay({ mod: menuMod(), kind: "popup", width: 240, props: { tab: "pane", target: { terminal: c.slice(5) } } });
       }
     });
+  }
+
+  step(d) {
+    const n = this.order?.length;
+    if (!n) return;
+    const i = this.order.indexOf(focused()?.agent);
+    const next = i < 0 ? (d > 0 ? 0 : n - 1) : (i + d + n) % n;
+    run("agent.select", { index: next + 1 });
   }
 
   peek(addr) {

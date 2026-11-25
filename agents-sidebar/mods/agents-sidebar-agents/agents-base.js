@@ -304,7 +304,8 @@ export default class Agents extends View {
     const pinned = list.filter((a) => a.pinned);
     const rest = list.filter((a) => !a.pinned);
     list = [...pinned, ...rest];
-    setAgentOrder(list.map((a) => a.address));
+    this.order = list.map((a) => a.address);
+    setAgentOrder(this.order);
     // with a mod pane focused (a chat), the shown tab's agents count as selected.
     const ft = focused()?.tab;
     const tabFocused = list.some((a) => a.tab === ft && a.focused);
