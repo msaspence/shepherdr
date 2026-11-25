@@ -50,7 +50,7 @@ function mix(a, b, amount) {
  *  glowing avatars for agents working each task, and green curves for recent agent-to-agent messages. */
 export default class ProjectBoard extends View {
   init(_props, cx) {
-    if (props()?.variant === "setup") return (this.setup = new Setup()).init(cx);
+    if (["setup", "settings"].includes(props()?.variant)) return (this.setup = new Setup()).init(cx);
     // Carry over card positions, view and sessions saved while this mod was called notion-board.
     for (const key of [POS_KEY, SESSIONS_KEY, GRID_FROZEN_KEY, VIEW_KEY]) {
       const old = key.replace("project-board.", "notion-board.");
@@ -410,10 +410,16 @@ export default class ProjectBoard extends View {
       })
       // Last, so cards panned underneath don't cover it.
       .child(
-        div()
+        h_flex()
           .absolute()
           .top(12)
           .right(12)
+          .gap(8)
+          .child(
+            this.cardButton(t, (n) => n * 1.2, "settings", svg("mods/workspace-chrome/settings.svg").size(16).text_color(t.foreground), () =>
+              openOverlay({ mod: "project-board", kind: "dialog", width: 440, height: 400,
+                props: { variant: "settings", space: this.space, spaceName: this.spaceName } }))
+          )
           .child(
             this.cardButton(
               t,

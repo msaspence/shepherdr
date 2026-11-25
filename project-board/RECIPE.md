@@ -19,6 +19,12 @@ shared while connecting), as a checklist: the board shows every one ticked, merg
 exactly one there's nothing to pick. The choice is saved as `projects`, and the board reloads
 at once (the dialog bumps `shared("project-board.config-rev")`).
 
+Once set up, a settings button (gear, left of refresh, top right) opens the same dialog with variant
+`settings` and two tabs: **Databases**, the checklist again with the saved ones ticked (a saved one no longer
+shared is listed so it can be unticked), saved with **Save**; and **Disconnect**, a red button that calls the
+provider's `disconnect` (Notion: deletes the space's token file; the connection stays listed in Notion's
+Settings > Connections until removed there) and removes the space's entry, so the board shows its set up call.
+
 Saved in `~/.config/herdr-app/data/project-board/spaces.json`, by space id, hand-editable:
 
 ```json

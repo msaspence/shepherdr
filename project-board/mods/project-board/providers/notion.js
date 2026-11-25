@@ -79,6 +79,12 @@ export default {
     return { tokenFile, assignee: owner, workspace };
   },
 
+  // Forgets this space's token (not the shared one notion-login.py saves when run by hand). Notion keeps the
+  // connection listed in its Settings > Connections until removed there.
+  async disconnect(config) {
+    if (config.tokenFile) await exec("rm", ["-f", config.tokenFile]);
+  },
+
   // The databases the person shared while connecting.
   async projects(config) {
     const token = await readToken(config);

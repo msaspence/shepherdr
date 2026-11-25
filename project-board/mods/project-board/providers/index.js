@@ -10,6 +10,7 @@
 //   load({ config, onBoard })  resolves to the tasks to show (throws on failure); config: the space's entry in
 //               spaces.json; onBoard: Set of task keys already on the board
 //   open(task)  opens the task in its app
+//   disconnect(config)  optional: forgets what connect stored (the space's settings are removed after)
 //   connect({ space })  signs in (OAuth in the browser, say); resolves to the config so far, which it may store
 //               a credential for (a token file per space, say)
 //   projects(config)  resolves to [{ id, name, unusable? }]: what the board could show (Notion: databases), with
