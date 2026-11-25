@@ -70,8 +70,8 @@ export class Setup {
       .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick)
       .when(Boolean(icon), (el) => el.child(svg(icon).size(18).flex_none().text_color(t.foreground)))
       .child(v_flex().flex_1().min_w(0).gap(4)
-        .child(div().truncate().line_height(16).child(title))
-        .when(Boolean(sub), (el) => el.child(div().truncate().line_height(15).text_size(12).text_color(t.muted).child(sub))));
+        .child(div().truncate().line_height("16px").child(title))
+        .when(Boolean(sub), (el) => el.child(div().truncate().line_height("15px").text_size(12).text_color(t.muted).child(sub))));
     const note = (text, color = t.muted) => div().px(10).py(6).text_size(12.5).text_color(color).child(text);
 
     let body;
