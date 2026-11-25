@@ -204,7 +204,7 @@ function statusMenu(v, pr, s) {
         openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
         cx.notify();
       } : null).when(!s.ready, (el) => el.text_color(t.dim))
-      .child(icon("git-merge", s.ready ? C(t).green : t.dim)).child(div().flex_1().child("Merge…")))
+      .child(icon("git-merge", s.ready ? C(t).green : t.dim)).child(div().flex_1().child(s.ready ? "Merge…" : "Merging is blocked")))
     .child(entry(t, `auto-${pr.number}`, pr.canAuto && !busy ? (_e, cx) => {
         state.autoBusy = pr.url;
         state.autoError = null;
