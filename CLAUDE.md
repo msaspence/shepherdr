@@ -3,6 +3,10 @@
 Herdr layouts and mods (see README.md). Herdr's own docs: `~/.config/herdr-app/AGENTS.md` and the
 generated `herdr.d.ts` / `gpui-kit.d.ts` next to each mod.
 
+## Git
+
+Commit and push straight to `main`; no feature branches or PRs needed.
+
 ## Local dev setup
 
 The entries' `layouts/*` and `mods/*` are symlinked into `~/.config/herdr-app/{layouts,mods}`, so the app
