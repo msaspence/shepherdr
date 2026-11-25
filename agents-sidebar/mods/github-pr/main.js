@@ -277,7 +277,7 @@ function statusMenu(v, pr, s) {
     const key = `${id}-${pr.url}`;
     // A bare Popup the arrow toggles: a Popover here would be nested in the row's dropdown and fight it for clicks.
     const open = state.methodsFor === key;
-    const arrow = Popup.new(`${id}-methods`, fill(h_flex().id(`${id}-arrow`).px(6), green, enabled)
+    const arrow = Popup.new(`${id}-methods`, fill(h_flex().id(`${id}-arrow`).px(6).rounded_r(5), green, enabled)
         .border_l_1().border_color(green && enabled ? t.background : t.border).on_click((_e, cx) => {
           // A press on the arrow already closed an open menu (outside it): don't reopen it on the same click.
           if (!open && Date.now() - (state.methodsClosedAt ?? 0) < 400) return;
@@ -297,7 +297,9 @@ function statusMenu(v, pr, s) {
     const hasArrow = pr.methods.length > 1 && enabled;
     return h_flex().h(28).rounded(6).overflow_hidden().font_semibold()
       .when(!(green && enabled), (el) => el.border_1().border_color(t.border))
-      .child(fill(h_flex().id(id).px(10), green, enabled).when(enabled, (el) => el.on_click(onClick)).child(label))
+      // Each half rounds its own outer corners: the outline's rounding doesn't clip their fill.
+      .child(fill(h_flex().id(id).px(10), green, enabled).when(hasArrow, (el) => el.rounded_l(5)).when(!hasArrow, (el) => el.rounded(5))
+        .when(enabled, (el) => el.on_click(onClick)).child(label))
       .when(hasArrow, (el) => el.child(arrow));
   };
   const plain = (id, label, onClick) => look(h_flex().id(id).px(10).rounded(6).font_semibold(), false, Boolean(onClick))
