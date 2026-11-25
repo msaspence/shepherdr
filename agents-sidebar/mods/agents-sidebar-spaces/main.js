@@ -527,12 +527,20 @@ export default class Spaces extends View {
     if ((this.height ?? Infinity) < DROPDOWN_BELOW) {
       const sp = spaces();
       const active = sp.find((w) => w.active);
-      // Rows (and New space) at 30px with 2px gaps, the rule's 7px, and 10px of padding.
-      const openPicker = () => openOverlay({ mod: "agents-sidebar-spaces", kind: "popup", at: "pointer", width: 260, height: Math.min(400, 17 + (sp.length + 1) * 32), props: { picker: true } });
+      // Opens just under the dropdown row, as wide as it. A click event has no position, and "pointer"
+      // can be where an earlier click was, so the row's bounds come from the press before the click.
+      // Height: rows (and New space) at 30px with 2px gaps, the rule's 7px, and 10px of padding.
+      const openPicker = () => {
+        const b = this.dropdownBounds;
+        openOverlay({ mod: "agents-sidebar-spaces", kind: "popup", props: { picker: true },
+          ...(b ? { at: { x: b.x, y: b.y + b.height + 4 }, width: Math.max(200, b.width) } : { at: "pointer", width: 260 }),
+          height: Math.min(400, 17 + (sp.length + 1) * 32) });
+      };
       return this.trackHeight(h_flex().size_full().min_h(0).px(8).items_center().bg(t.chrome).text_size(13)
         .child(h_flex().id("space-dropdown").flex_1().min_w(0).h(30).px(8).gap(9).rounded(8).items_center().cursor_pointer()
           .text_color(t.foreground).hover((s) => (sidebarIdle() ? s.bg(t.hover) : s))
           .when(Boolean(active), (el) => el.on_mouse_down("right", () => this.menu(active)))
+          .on_mouse_down("left", (e) => { if (e.bounds) this.dropdownBounds = e.bounds; })
           .on_click(openPicker)
           .overflow_hidden()
           .when(Boolean(active), (el) => el.child(avatar(active, t)))

@@ -487,7 +487,7 @@ export default class Agents extends View {
         ),
       )
       .when(list.length === 0 && !collapsed, (el) =>
-        el.child(drawerFade(div().px(12).text_size(12).text_color(t.dim).child("No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not."))),
+        el.child(drawerFade(div().px(16).py(6).text_size(12).text_color(t.dim).child("No agents yet"))),
       )
       // no » under the rail; the drawer (hover the rail) has the sidebar button.
       .child(v_flex().id("ag-list").gap(2).flex_1().min_h(0).px(8).overflow_y_scrollbar().mode("always").children(rows));
