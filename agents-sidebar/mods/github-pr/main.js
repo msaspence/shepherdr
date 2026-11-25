@@ -221,16 +221,16 @@ function statusMenu(v, pr, s) {
     .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).text_color(t.accent_foreground).child(icon("check", t.accent_foreground, 11)));
   const busy = state.autoBusy === pr.url;
   return v_flex().gap(2)
-    // Ready: an outline button that opens the merge dialog. Blocked: a dim line, with the reasons under it.
+    // Ready: a solid button that opens the merge dialog. Blocked: a dim line, with the reasons under it.
     .child(s.ready
       ? h_flex().px(2).py(2).child(h_flex().id(`merge-${pr.number}`).h(28).px(10).gap(8).items_center().rounded(6)
-        .border_1().border_color(t.input).cursor_pointer().text_color(t.foreground).hover((st) => st.bg(t.hover))
+        .bg(t.solid).cursor_pointer().text_color(t.solid_foreground).hover((st) => st.opacity(0.9))
         .on_click((_e, cx) => {
           state.open = null;
           openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
           cx.notify();
         })
-        .child(icon("git-merge", t.foreground)).child("Merge…"))
+        .child(icon("git-merge", t.solid_foreground)).child("Merge…"))
       : entry(t, `merge-${pr.number}`, null).text_color(t.dim)
         .child(icon("git-merge", t.dim)).child(div().flex_1().child("Merging is blocked")))
     .when(!s.ready, (el) => el.child(v_flex().pl(28).pr(6).pb(4).gap(2).children(blockers(t, pr, s).map(([mark, text]) =>
