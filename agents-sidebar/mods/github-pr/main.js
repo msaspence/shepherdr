@@ -317,9 +317,11 @@ function conflictsMenu(v, pr) {
 }
 
 // A row's head: icon, label, what's on the right, a chevron when it opens something.
-function rowHead(t, id, it, { active, open } = {}) {
+const indented = (it) => it.key !== "title"; // rows sit 8px in, under the PR's number and title
+
+function rowHead(t, id, it, { active, open, flush } = {}) {
   return h_flex().id(id).h(30).px(4).gap(8).items_center().flex_none().rounded(6)
-    .when(it.key !== "title", (el) => el.ml(8)) // indented under the PR's number and title
+    .when(indented(it) && !flush, (el) => el.ml(8))
     .when(Boolean(it.body || it.click), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
     .when(Boolean(active), (el) => el.bg(t.selected))
     .child(it.icon)
@@ -355,10 +357,12 @@ function summaryRows(t, pr, ctx) {
 }
 
 // A row whose body opens as a dropdown under it.
-const menuRow = (t, id, it, state) => Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
-  .on_open_change((open, cx) => { state.open = open ? id : null; state.drill = null; cx.notify(); })
-  .trigger(rowHead(t, id, it))
-  .content(div().pt(4).child(menu(t, it, state))); // 4px clear of the trigger's background
+// The indent goes outside the popover, so the dropdown's left edge lines up with the row, not the PR number.
+const menuRow = (t, id, it, state) => div().when(indented(it), (el) => el.pl(8))
+  .child(Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
+    .on_open_change((open, cx) => { state.open = open ? id : null; state.drill = null; cx.notify(); })
+    .trigger(rowHead(t, id, it, { flush: true }))
+    .content(div().pt(4).child(menu(t, it, state)))); // 4px clear of the trigger's background
 
 // The PR tab: narrow, each PR's rows expand in place (Status opens a dropdown, as in the Summary); wide, every PR's rows in one list beside a single pane with
 // the selected row's content.
