@@ -41,7 +41,8 @@ function ring(t, segs, size = 14) {
   const total = segs.reduce((n, [v]) => n + v, 0);
   const box = div().relative().size(size).flex_none();
   if (!total) return box.child(icon("ring", t.dim, size));
-  const w = 2, r = (size - w) / 2, c = size / 2;
+  // Lucide's geometry (r 10, stroke 2 on a 24 grid), so it lines up with the circle icons in the other rows.
+  const w = size * 2 / 24, r = size * 10 / 24, c = size / 2;
   const shown = segs.filter(([v]) => v);
   const gap = shown.length > 1 ? 0.5 : 0; // radians between arcs
   const at = (a) => [c + r * Math.sin(a), c - r * Math.cos(a)];
