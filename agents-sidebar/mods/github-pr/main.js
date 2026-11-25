@@ -4,7 +4,7 @@
 // Copies: the merge dialog (props.variant "merge"), a review comment's popover (props.variant "comment"), and the
 // panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
-import { h_flex, v_flex, Input, InputState, Popover, TextView } from "gpui-base";
+import { h_flex, v_flex, Input, InputState, Popover, Popup, TextView } from "gpui-base";
 import { checking, closeOverlay, hc, openOverlay, panes, props, setShared, shared, spaces, theme } from "herdr";
 import { METHOD_KEY, attachingFor, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
 
@@ -216,13 +216,24 @@ function blockers(t, pr, s) {
 
 // Modelled on GitHub's merge box: a haloed state icon, a heading and what it means, then a split merge button
 // (the caret picks the method) and auto-merge.
+// A hex color mixed toward black (amount 0..1); other colors as they are.
+const darken = (color, amount) => {
+  const m = /^#([0-9a-f]{6})/i.exec(color ?? "");
+  if (!m) return color;
+  const n = parseInt(m[1], 16), f = (x) => Math.round(x * (1 - amount)).toString(16).padStart(2, "0");
+  return `#${f(n >> 16)}${f((n >> 8) & 255)}${f(n & 255)}`;
+};
+
+// The status content, modelled on GitHub's merge box: a badge (a pale ring round a solid circle with a white
+// icon), the state and why, then the button GitHub would offer: Merge, Enable auto-merge, or Disable auto-merge.
+// The arrow on Merge and Enable auto-merge opens a menu of merge methods over the content.
 function statusMenu(v, pr, s) {
   const { t, state } = v;
   const c = C(t);
   const badge = (color, name) => div().relative().size(32).flex_none()
-    .child(div().absolute().inset_0().rounded_full().bg(color).opacity(0.2))
-    .child(div().absolute().inset(4).rounded_full().bg(color).flex().items_center().justify_center()
-      .child(icon(name, t.background, 14)));
+    .child(div().absolute().inset_0().rounded_full().bg(color).opacity(0.25))
+    .child(div().absolute().inset(4).rounded_full().bg(darken(color, 0.45)).flex().items_center().justify_center()
+      .child(icon(name, "#ffffff", 14)));
   const header = (mark, title, sub) => h_flex().gap(10).items_start().p(6)
     .child(mark)
     .child(v_flex().flex_1().min_w(0).gap(2)
@@ -234,48 +245,65 @@ function statusMenu(v, pr, s) {
     : header(badge(c.grey, "x"), "Closed", line("This pull request was closed"));
 
   const severe = s.conflicting || s.changesRequested || s.failing;
-  const mark = s.ready ? badge(c.green, "check") : severe ? badge(c.red, "x") : badge(s.checks.running ? c.gold : c.grey, "dot");
+  const mark = s.ready ? badge(c.green, "check") : severe ? badge(c.red, "x") : badge(c.gold, "clock-hands");
   const sub = s.ready ? line("All requirements are met - merge the pull request.")
     : v_flex().gap(2).children(blockers(t, pr, s).map(([m, text]) =>
       h_flex().min_h(20).gap(6).items_center().text_size(12).text_color(t.muted).child(m).child(div().flex_1().min_w(0).child(text))));
 
-  const method = mergeMethod(pr), picking = state.methodsFor === pr.url;
-  const half = (id, onClick) => h_flex().id(id).h(28).items_center().bg(s.ready ? c.green : t.raised)
-    .text_color(s.ready ? t.background : t.dim)
-    .when(s.ready, (el) => el.cursor_pointer().hover((st) => st.opacity(0.9)).on_click(onClick));
-  const split = h_flex().rounded(6).overflow_hidden().font_semibold()
-    .child(half(`merge-${pr.number}`, (_e, cx) => {
-      state.open = null;
-      openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
-      cx.notify();
-    }).px(10).child(METHODS[method]))
-    .when(pr.methods.length > 1, (el) => el.child(half(`methods-${pr.number}`, (_e, cx) => { state.methodsFor = picking ? null : pr.url; cx.notify(); })
-      .px(6).border_l_1().border_color(t.border).child(icon("chevron-down", s.ready ? t.background : t.dim, 12))));
-  const methods = v_flex().gap(1).children(pr.methods.map((m) => entry(t, `method-${pr.number}-${m}`, (_e, cx) => {
-    state.methodsFor = null;
-    if (shared(METHOD_KEY) !== m) setShared(METHOD_KEY, m);
-    cx.notify();
-  }).child(div().size(12).flex_none().child(m === method ? icon("check", t.foreground, 12) : div())).child(METHODS[m])));
-
-  const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
-    .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).text_color(t.accent_foreground).child(icon("check", t.accent_foreground, 11)));
+  const method = mergeMethod(pr);
   const busy = state.autoBusy === pr.url;
+  const auto = (on) => (_e, cx) => {
+    state.autoBusy = pr.url;
+    state.autoError = null;
+    cx.spawn(async (cx) => {
+      try { await setAutoMerge(pr, on); } catch (e) { state.autoError = String(e?.message ?? e); }
+      state.autoBusy = null;
+      cx.notify();
+    });
+    cx.notify();
+  };
+  // A GitHub button: green when it's the one to press, else grey with a border; dim and inert when disabled.
+  const look = (el, green, enabled) => el.h(28).items_center()
+    .when(green && enabled, (e) => e.bg(c.green).text_color(t.background))
+    .when(!green || !enabled, (e) => e.bg(t.raised).border_1().border_color(t.border).text_color(enabled ? t.foreground : t.dim))
+    .when(enabled, (e) => e.cursor_pointer().hover((st) => st.opacity(0.9)));
+  // A button with an arrow that picks the merge method.
+  const split = (id, label, green, enabled, onClick) => {
+    const key = `${id}-${pr.url}`;
+    // A bare Popup the arrow toggles: a Popover here would be nested in the row's dropdown and fight it for clicks.
+    const open = state.methodsFor === key;
+    const arrow = Popup.new(`${id}-methods`, look(h_flex().id(`${id}-arrow`).px(6).rounded_r(6), green, enabled)
+        .border_l_1().border_color(t.border).on_click((_e, cx) => { state.methodsFor = open ? null : key; cx.notify(); })
+        .child(icon("chevron-down", green && enabled ? t.background : t.muted, 12)))
+      .anchor("top_right")
+      .when(open, (el) => el.content(div().pt(4).child(v_flex().w(220).p(4).gap(1).rounded(8).bg(t.popover).border_1().border_color(t.border)
+        .shadow_lg().text_size(13).text_color(t.foreground)
+        .children(pr.methods.map((m) => entry(t, `${id}-method-${m}`, (_e, cx) => {
+          state.methodsFor = null;
+          if (shared(METHOD_KEY) !== m) setShared(METHOD_KEY, m);
+          cx.notify();
+        }).child(div().size(12).flex_none().child(m === method ? icon("check", t.foreground, 12) : div())).child(METHODS[m]))))));
+    const hasArrow = pr.methods.length > 1 && enabled;
+    return h_flex().font_semibold()
+      .child(look(h_flex().id(id).px(10), green, enabled).when(hasArrow, (el) => el.rounded_l(6)).when(!hasArrow, (el) => el.rounded(6))
+        .when(enabled, (el) => el.on_click(onClick)).child(label))
+      .when(hasArrow, (el) => el.child(arrow));
+  };
+  const plain = (id, label, onClick) => look(h_flex().id(id).px(10).rounded(6).font_semibold(), false, Boolean(onClick))
+    .when(Boolean(onClick), (el) => el.on_click(onClick)).child(label);
+  const openMerge = (_e, cx) => {
+    state.open = null;
+    openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
+    cx.notify();
+  };
+  const action = pr.autoMerge ? plain(`auto-off-${pr.number}`, busy ? "Disabling…" : "Disable auto-merge", busy ? null : auto(false))
+    : s.ready ? split(`merge-${pr.number}`, METHODS[method], true, true, openMerge)
+    : pr.canAuto ? split(`auto-on-${pr.number}`, busy ? "Enabling…" : `Enable auto-merge (${method})`, false, !busy, auto(true))
+    : split(`merge-${pr.number}`, METHODS[method], true, false, null);
   return v_flex().gap(4)
     .child(header(mark, s.ready ? "Ready to merge" : "Merging is blocked", sub))
-    .child(v_flex().pl(48).pr(6).gap(4).child(h_flex().child(split)).when(s.ready && picking, (el) => el.child(methods)))
-    .child(div().h(1).mx(6).my(2).bg(t.border))
-    .child(entry(t, `auto-${pr.number}`, pr.canAuto && !busy ? (_e, cx) => {
-        state.autoBusy = pr.url;
-        state.autoError = null;
-        cx.spawn(async (cx) => {
-          try { await setAutoMerge(pr, !pr.autoMerge); } catch (e) { state.autoError = String(e?.message ?? e); }
-          state.autoBusy = null;
-          cx.notify();
-        });
-        cx.notify();
-      } : null).when(!pr.canAuto || busy, (el) => el.text_color(t.dim))
-      .child(box(pr.autoMerge)).child(div().flex_1().child(busy ? "Auto-merge…" : "Auto-merge")))
-    .when(Boolean(state.autoError), (el) => el.child(note(t, state.autoError).text_color(t.blocked)));
+    .child(v_flex().pl(48).pr(6).pb(4).gap(4).child(h_flex().child(action))
+      .when(Boolean(state.autoError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.autoError))));
 }
 
 function reviewsMenu(v, pr) {
@@ -360,7 +388,12 @@ function summaryRows(t, pr, ctx) {
 // The indent goes outside the popover, so the dropdown's left edge lines up with the row, not the PR number.
 const menuRow = (t, id, it, state) => div().when(indented(it), (el) => el.pl(8))
   .child(Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
-    .on_open_change((open, cx) => { state.open = open ? id : null; state.drill = null; cx.notify(); })
+    .on_open_change((open, cx) => {
+      if (!open && state.methodsFor) return; // a method menu is open inside: it closes first
+      state.open = open ? id : null;
+      state.drill = null;
+      cx.notify();
+    })
     .trigger(rowHead(t, id, it, { flush: true }))
     .content(div().pt(4).child(menu(t, it, state)))); // 4px clear of the trigger's background
 
