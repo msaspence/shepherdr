@@ -364,50 +364,55 @@ const removeButton = (t, pr, ctx) => stop(div().id(`rm-${pr.number}`).size(22).f
   })
   .child(svg(I("x")).size(13)));
 
-// Whether the agent could open a PR: on a branch, and not the usual default ones.
-const canCreate = (ctx) => Boolean(ctx.branch && ctx.agent?.terminal && !["main", "master"].includes(ctx.branch));
+// A small bordered button with an icon, for the actions row.
+const smallButton = (t, id, iconName, label, onClick) => stop(h_flex().id(id).h(26).px(8).gap(6).flex_none().items_center()
+  .rounded(6).border_1().border_color(t.border).text_size(12)
+  .when(Boolean(onClick), (el) => el.cursor_pointer().text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click(onClick))
+  .when(!onClick, (el) => el.text_color(t.dim))
+  .child(svg(I(iconName)).size(13).flex_none()).child(label));
 
-// Asks the agent (its terminal) to open a PR for its branch.
+// Asks the agent (types into its terminal) to open a PR; once per agent and branch.
 function createButton(t, ctx) {
   const { state } = ctx;
-  const sent = state.askedFor === `${ctx.agent.terminal}\n${ctx.branch}`;
-  return stop(div().id("gh-create-pr").h(24).px(10).flex().flex_none().items_center().rounded(6).text_size(12)
-    .when(!sent, (el) => el.cursor_pointer().bg(t.solid).text_color(t.solid_foreground))
-    .when(sent, (el) => el.border_1().border_color(t.border).text_color(t.dim))
-    .tooltip(sent ? "Sent to the agent" : "Ask the agent to open a pull request")
-    .on_click((_e, cx) => {
-      if (sent) return;
-      state.askedFor = `${ctx.agent.terminal}\n${ctx.branch}`;
-      const text = `Open a pull request for this branch (${ctx.branch}): commit and push any outstanding work, then create it with gh pr create.`;
-      cx.spawn(async (cx) => {
-        const r = await hc(["send", ctx.agent.terminal, text]).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
-        if (r.code !== 0) { state.askedFor = null; state.linkError = r.stderr?.trim() || "Couldn't reach the agent"; }
-        cx.notify();
-      });
+  const asked = `${ctx.agent.terminal}\n${ctx.branch}`;
+  if (state.askedFor === asked) return smallButton(t, "gh-create-pr", "check", "Asked the agent", null);
+  return smallButton(t, "gh-create-pr", "git-pull-request", "Create PR", (_e, cx) => {
+    state.askedFor = asked;
+    state.linkError = null;
+    const text = ["main", "master", null].includes(ctx.branch ?? null)
+      ? "Open a pull request for your work: create a branch for it, commit and push, then open it with gh pr create."
+      : `Open a pull request for this branch (${ctx.branch}): commit and push any outstanding work, then open it with gh pr create.`;
+    cx.spawn(async (cx) => {
+      const r = await hc(["send", ctx.agent.terminal, text]).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+      if (r.code !== 0) { state.askedFor = null; state.linkError = r.stderr?.trim() || "Couldn't reach the agent"; }
       cx.notify();
-    })
-    .child(sent ? "Asked" : "Create PR"));
+    });
+    cx.notify();
+  });
 }
 
-// The PR tab's field for attaching any PR (a URL, or a number in the agent's repo) to this agent. A button until
-// clicked: an input's state can't be made during render, only in an event handler.
-function attachField(t, ctx) {
+// Attach and Create PR, side by side, under the PRs in the Summary and the PR tab. Attach opens a field for a PR's
+// URL or number in their place; its input is made then, since an input's state can't be made during render.
+function actions(t, ctx) {
   const { state } = ctx;
-  const wrap = v_flex().gap(4).pt(10).mt(6).border_t_1().border_color(t.border);
-  if (!state.input) {
-    return wrap.child(entry(t, "gh-attach-open", (_e, cx) => {
-      state.input = InputState.new({ placeholder: "PR URL or number" });
-      state.input.on("submit", (_e, cx) => attach(ctx, cx));
-      state.input.focus();
-      cx.notify();
-    }).text_color(t.muted).child(svg(I("git-pull-request")).size(14).flex_none()).child(div().flex_1().child("Attach a pull request…")));
-  }
-  return wrap
-    .child(h_flex().gap(6).items_center()
-      .child(Input.new(state.input).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.input).bg(t.background).text_size(12.5))
-      .child(div().id("gh-attach").h(28).px(10).flex().flex_none().items_center().rounded(6).text_size(12)
-        .border_1().border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => attach(ctx, cx)).child(state.attaching ? "Attaching…" : "Attach")))
+  const row = state.input
+    ? h_flex().gap(6).items_center()
+      .child(Input.new(state.input).flex_1().h(26).px(8).rounded(6).border_1().border_color(t.input).bg(t.background).text_size(12.5))
+      .child(smallButton(t, "gh-attach", "check", state.attaching ? "Attaching…" : "Attach", state.attaching ? null : (_e, cx) => attach(ctx, cx)))
+      .child(stop(div().id("gh-attach-cancel").size(26).flex().flex_none().items_center().justify_center().rounded(6).cursor_pointer()
+        .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Cancel")
+        .on_click((_e, cx) => { state.input.release(); state.input = null; state.linkError = null; cx.notify(); })
+        .child(svg(I("x")).size(13))))
+    : h_flex().gap(6).items_center()
+      .child(smallButton(t, "gh-attach-open", "git-merge", "Attach PR", (_e, cx) => {
+        state.input = InputState.new({ placeholder: "PR URL or number" });
+        state.input.on("submit", (_e, cx) => attach(ctx, cx));
+        state.input.focus();
+        state.linkError = null;
+        cx.notify();
+      }))
+      .child(createButton(t, ctx));
+  return v_flex().gap(4).px(4).pt(6).child(row)
     .when(Boolean(state.linkError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.linkError)));
 }
 
@@ -421,7 +426,8 @@ function attach(ctx, cx) {
   cx.spawn(async (cx) => {
     try {
       await setLink(term, await resolvePr(ctx.cwd, text), true);
-      state.input.set_value("");
+      state.input.release();
+      state.input = null;
     } catch (e) {
       state.linkError = String(e?.message ?? e);
     }
@@ -433,21 +439,16 @@ function attach(ctx, cx) {
 
 const register = {
   header: (ctx) => {
-    const e = load(ctx);
-    const n = e?.prs?.length ?? 0;
-    return n > 1 ? "Pull Requests" : n || (e && canCreate(ctx)) ? "Pull Request" : null;
+    const n = load(ctx)?.prs?.length ?? 0;
+    return n > 1 ? "Pull Requests" : n || ctx.agent?.terminal ? "Pull Request" : null;
   },
   summary: (ctx) => {
     const { t } = ctx;
     const e = load(ctx);
-    if (!e) return null;
-    if (!e.prs?.length) {
-      if (!canCreate(ctx)) return null;
-      return h_flex().id("ghpr-none").h(30).px(4).gap(8).items_center().flex_none()
-        .child(icon("git-pull-request", t.dim)).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child("No pull request"))
-        .child(createButton(t, ctx));
-    }
-    return v_flex().gap(8).children(e.prs.map((pr) => summaryRows(t, pr, ctx)));
+    if (!ctx.agent?.terminal && !e?.prs?.length) return null;
+    return v_flex()
+      .when(Boolean(e?.prs?.length), (el) => el.child(v_flex().gap(8).children(e.prs.map((pr) => summaryRows(t, pr, ctx)))))
+      .when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
   },
   render: (ctx) => {
     const { t } = ctx;
@@ -456,11 +457,9 @@ const register = {
     if (!ctx.cwd) return msg("No folder");
     if (!e) return msg("Loading…");
     const body = e.error && !e.prs ? msg(e.error, t.blocked)
-      : !e.prs?.length ? h_flex().gap(8).items_center().px(4).py(4)
-        .child(div().flex_1().min_w(0).text_size(12.5).text_color(t.muted).child(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request"))
-        .when(canCreate(ctx), (el) => el.child(createButton(t, ctx)))
+      : !e.prs?.length ? msg(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request")
       : v_flex().gap(12).children(e.prs.map((pr) => tabRows(t, pr, ctx)));
-    return v_flex().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(attachField(t, ctx)));
+    return v_flex().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
   },
 };
 (globalThis.contextPanel ??= {})[MOD] = register;
