@@ -283,6 +283,7 @@ function conflictsMenu(v, pr) {
 // A row's head: icon, label, what's on the right, a chevron when it opens something.
 function rowHead(t, id, it, { active, open } = {}) {
   return h_flex().id(id).h(30).px(4).gap(8).items_center().flex_none().rounded(6)
+    .when(it.key !== "repo", (el) => el.ml(8)) // indented under the PR's own (repo) row
     .when(Boolean(it.body || it.click), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
     .when(Boolean(active), (el) => el.bg(t.selected))
     .child(it.icon)
