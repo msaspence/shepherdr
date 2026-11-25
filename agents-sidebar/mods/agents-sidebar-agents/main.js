@@ -8,7 +8,7 @@
 import Agents, { RAIL, toggleSidebar } from "./agents-base.js";
 import { div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { appHome, checking, closeOverlay, updates, settings, knownAgents, layout, nextCommand, openOverlay, props, run, setShared, shared, spaces, terminals, theme } from "herdr";
+import { appHome, checking, closeOverlay, updates, settings, knownAgents, layout, nextCommand, openOverlay, panes, props, run, setShared, shared, spaces, terminals, theme } from "herdr";
 import { readdir, readFile } from "fs/promises";
 import { dragCursor, drawerFade, drawerHover, hasMod, loadMods, menuMod, sidebarIdle } from "./drawer.js";
 
@@ -38,7 +38,9 @@ async function loadItems() {
   items = out;
 }
 
-const itemTab = (it, space) => it.tab && space?.tabs.find((tab) => tab.named && tab.name === it.tab.name);
+// The item's tab: named for it and showing its mod, so a same-named tab left from another mod isn't picked.
+const itemTab = (it, space) => it.tab && space?.tabs.find((tab) => tab.named && tab.name === it.tab.name
+  && panes().some((p) => p.tab === tab.id && p.mod === it.mod));
 function openItem(it) {
   const space = spaces().find((s) => s.active);
   if (!it.tab) return run(it.command, it.args ?? {});
