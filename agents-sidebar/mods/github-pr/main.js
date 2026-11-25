@@ -562,6 +562,9 @@ function showRepo(ctx, prs) {
   return repo !== undefined && prs.some((pr) => `${pr.owner}/${pr.repo}`.toLowerCase() !== repo?.toLowerCase());
 }
 
+const msgLine = (text, color) => div().px(4).py(6).text_size(12.5).text_color(color).child(text);
+const none = (t, ctx) => msgLine(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request", t.muted);
+
 const register = {
   agentPrs, closePr, // the archive dialog's (agents-sidebar-agents/archive.js)
   title: (ctx) => prLabel(ctx),
@@ -576,18 +579,18 @@ const register = {
     return v_flex()
       .when(Boolean(e?.prs?.length), (el) => el.child(v_flex().gap(16).children(e.prs.map((pr) => summaryRows(t, pr, ctx)))))
       .children(loading)
-      .when(Boolean(ctx.agent?.terminal) && !e?.prs?.length && !loading.length, (el) => el.child(actions(t, ctx))); // the PR tab always has them
+      .when(Boolean(ctx.agent?.terminal) && !e?.prs?.length && !loading.length, (el) => el.child(none(t, ctx)).child(actions(t, ctx))); // the PR tab always has them
   },
   render: (ctx) => {
     const { t } = ctx;
     const e = load(ctx);
-    const msg = (text, color = t.muted) => div().px(4).py(6).text_size(12.5).text_color(color).child(text);
+    const msg = (text, color = t.muted) => msgLine(text, color);
     if (!ctx.cwd) return msg("No folder");
     if (!e) return loadingAll(t);
     const loading = loadingRows(t, ctx, e.prs);
     ctx.showRepo = showRepo(ctx, e.prs);
     const body = e.error && !e.prs ? msg(e.error, t.blocked)
-      : !e.prs?.length && !loading.length ? msg(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request")
+      : !e.prs?.length && !loading.length ? none(t, ctx)
       : tabView(t, e.prs ?? [], ctx, loading);
     return v_flex().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
   },
