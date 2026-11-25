@@ -1,13 +1,11 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { PathBuilder, Background } from "gpui-kit";
+import { provider } from "./providers/index.js";
 import { agents, spaces, panes, terminals, theme, run, exec, home, appHome, readTextFile, shared, setShared, checking } from "herdr";
 
-const DATA_SOURCE = "30f11a6a-bbaf-8046-980c-000bac8513b0"; // Tech Tasks
-const ME = "364d872b-594c-81d2-b213-00026b882893";
 const HYPERES = "Projects/Hyperes"; // under home; agents started from a card work in a worktree of it
 const BRANCH_OWNER = "msas"; // new task branches are <owner>/<ID>-<title_words>, the repo's convention
-const STATUSES = ["In progress", "Queued", "Done"]; // Released tasks leave the board
 const LINK_LOG = "/tmp/herdr-agent-links.jsonl";
 const LINK_TTL_MS = 10 * 60 * 1000;
 const CARD_W = 260;
@@ -15,7 +13,6 @@ const CARD_H = 130; // until a card reports its measured height
 const POS_KEY = "project-board.pos";
 const SESSIONS_KEY = "project-board.sessions"; // task key -> { chat, sessionFile, provider, cwd, tab }: its last chat session
 const GRID_FROZEN_KEY = "project-board.grid-frozen";
-const PRIORITY_RANK = { High: 0, Medium: 1, Low: 2 };
 const NEW_CARD_H = 150; // a new card's height before it has been measured
 const GAP = 24;
 const VIEW_KEY = "project-board.view"; // { x, y, z }: pan offset in screen px, zoom
@@ -23,10 +20,12 @@ const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 2.5;
 const TASK_ID = /\b([A-Z]{2}-\d+)\b/i;
 const GREEN = "#3fb950";
-// In Flight pill colors, [dot, fill], by stage: Not started is queued, Done is done, everything between in progress.
-const IN_FLIGHT_COLORS = { queued: ["#D0A548", "#836A35"], progress: ["#4481D8", "#45699B"], done: ["#5F9F75", "#486A52"] };
+// Status pill colors, [dot, fill], by the status's stage.
+const STAGE_COLORS = { queued: ["#D0A548", "#836A35"], progress: ["#4481D8", "#45699B"], done: ["#5F9F75", "#486A52"] };
 const CACHE = "mods/project-board/.cache"; // hidden, so downloads don't hot-reload the mod
-const ICON_COLORS = { red: "ansi1", green: "ansi2", yellow: "ansi3", blue: "ansi4", purple: "ansi5", pink: "ansi13", orange: "ansi11", brown: "ansi3" };
+
+// Where an icon url is cached: the url's last part (names could collide across hosts; hash the url if a provider ever mixes them).
+const iconFile = (url) => `icons/${url.split("/").pop()}`;
 
 // One PR's checks: "failed" if any failed, else "pending" if any are still running, else "passed"; null if it has none.
 function prChecks(rollup) {
@@ -47,7 +46,7 @@ function mix(a, b, amount) {
   return "#" + x.map((v, i) => Math.round(v * amount + y[i] * (1 - amount)).toString(16).padStart(2, "0")).join("");
 }
 
-/** Whiteboard of Notion Tech Tasks: draggable cards, orthogonal "Blocked by" arrows,
+/** Whiteboard of project tasks (from providers/): draggable cards, orthogonal "Blocked by" arrows,
  *  glowing avatars for agents working each task, and green curves for recent agent-to-agent messages. */
 export default class ProjectBoard extends View {
   init(_props, cx) {
@@ -69,11 +68,12 @@ export default class ProjectBoard extends View {
     if (checking()) {
       // Exercise cards, arrows and curves under `herdr-app check`.
       this.tasks = [
-        { page: "a", key: "OI-1", title: "Blocker", icon: { emoji: "🔨" }, inFlight: { name: "Coding", color: "blue" }, people: [{ id: "u", name: "Matthew" }], blockedBy: [], url: "" },
-        { page: "b", key: "OI-2", title: "Blocked", icon: null, people: [], blockedBy: ["a"], url: "" },
+        { id: "a", key: "OI-1", title: "Blocker", icon: { emoji: "🔨" }, status: { name: "Coding", stage: "progress" }, people: [{ id: "u", name: "Matthew" }], blockedBy: [], url: "" },
+        { id: "b", key: "OI-2", title: "Blocked", icon: null, status: null, people: [], blockedBy: ["a"], url: "" },
       ];
       this.links = [{ pair: "OI-1|OI-2", at: Date.now() }];
       this.hovered = "OI-1";
+      provider.check?.();
       const ok = (c) => ({ __typename: "CheckRun", status: "COMPLETED", conclusion: c });
       if (prChecks([ok("SUCCESS"), ok("FAILURE")]) !== "failed" || prChecks([ok("SUCCESS"), { __typename: "CheckRun", status: "IN_PROGRESS" }]) !== "pending" || prChecks([ok("SUCCESS"), ok("SKIPPED")]) !== "passed" || prChecks([]) !== null) throw new Error("prChecks is wrong");
       if (mix("#ff0000", "#000000", 0.25) !== "#400000" || mix("nope", "#123456", 0.5) !== "#123456") throw new Error("mix is wrong");
@@ -97,57 +97,14 @@ export default class ProjectBoard extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const token = (await readTextFile(`${home()}/.config/notion-board/token`)).trim();
-        const pages = [];
-        for (let cursor; ; ) {
-          const res = await fetch(`https://api.notion.com/v1/data_sources/${DATA_SOURCE}/query`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Notion-Version": "2025-09-03", "Content-Type": "application/json" },
-            body: JSON.stringify({
-              page_size: 100,
-              ...(cursor ? { start_cursor: cursor } : {}),
-              filter: {
-                and: [
-                  { property: "Assignee", people: { contains: ME } },
-                  { or: STATUSES.map((s) => ({ property: "Status", status: { equals: s } })) },
-                ],
-              },
-            }),
-          });
-          const json = await res.json();
-          if (!res.ok) throw new Error(json.message ?? `Notion ${res.status}`);
-          pages.push(...json.results);
-          if (!json.has_more) break;
-          cursor = json.next_cursor;
-        }
-        // Done tasks stay until Released, but only ones already on the board: most Done tasks are never Released.
-        const onBoard = shared(POS_KEY) ?? {};
-        const keyOf = (p) => {
-          const id = p.properties.ID?.unique_id;
-          return id ? `${id.prefix}-${id.number}` : p.id.slice(0, 6);
-        };
-        const shown = pages.filter((p) => p.properties.Status.status?.name !== "Done" || onBoard[keyOf(p)]);
-        this.tasks = shown.map((p) => {
-          const id = p.properties.ID?.unique_id;
-          return {
-            page: p.id,
-            key: id ? `${id.prefix}-${id.number}` : p.id.slice(0, 6),
-            title: p.properties["Task name"].title.map((t) => t.plain_text).join(""),
-            icon: p.icon?.type === "emoji" ? { emoji: p.icon.emoji } : p.icon?.type === "icon" ? p.icon.icon : null,
-            inFlight: p.properties["In Flight"]?.status ?? null, // { name, color }
-            rank: [PRIORITY_RANK[p.properties.Priority?.select?.name] ?? 3, id?.number ?? Infinity],
-            people: p.properties.Assignee.people.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar_url })),
-            blockedBy: p.properties["Blocked by"].relation.map((r) => r.id),
-            url: p.url,
-          };
-        });
+        this.tasks = await provider.load({ onBoard: new Set(Object.keys(shared(POS_KEY) ?? {})) });
         this.error = null;
         this.freezeOldGrid();
         this.tasks.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
         this.placeNewCards();
         cx.notify();
         for (const task of this.tasks) {
-          if (task.icon?.name) await this.cache(`https://cdn.jsdelivr.net/npm/lucide-static/icons/${task.icon.name}.svg`, `icons/${task.icon.name}.svg`);
+          if (task.icon?.svg) await this.cache(task.icon.svg, iconFile(task.icon.svg));
           for (const u of task.people) if (u.avatar) await this.cache(u.avatar, `avatars/${u.id}${u.avatar.match(/\.\w+$/)?.[0] ?? ""}`);
         }
       } catch (e) {
@@ -273,7 +230,7 @@ export default class ProjectBoard extends View {
     return pos;
   }
 
-  // Once: cards never dragged sat in a grid by Notion's API order; save that so they don't move.
+  // Once: cards never dragged sat in a grid by the provider's order; save that so they don't move.
   freezeOldGrid() {
     if (shared(GRID_FROZEN_KEY)) return;
     setShared(POS_KEY, this.positions());
@@ -332,14 +289,14 @@ export default class ProjectBoard extends View {
     const t = theme();
     // Before any tasks have loaded an error is all there is to show; after, a failed refresh keeps the last cards.
     if (this.error && !this.tasks.length)
-      return this.message(t, `Notion: ${this.error}`, "Check the token in ~/.config/notion-board/token (re-run notion-login.py) and the connection");
+      return this.message(t, `${provider.name}: ${this.error}`, provider.setupHint);
     if (!this.tasks.length) return this.message(t, "No tasks yet", "Loading your Queued, In progress and Done tasks…");
 
     const { x: ox, y: oy, z } = this.view;
     const world = this.positions();
     const pos = Object.fromEntries(Object.entries(world).map(([k, p]) => [k, { x: p.x * z + ox, y: p.y * z + oy }]));
     const h = (k) => this.height(k) * z;
-    const byPage = Object.fromEntries(this.tasks.map((x) => [x.page, x]));
+    const byPage = Object.fromEntries(this.tasks.map((x) => [x.id, x]));
     const byAgent = this.agentsByTask();
     const center = (k) => ({ x: pos[k].x + (CARD_W * z) / 2, y: pos[k].y + h(k) / 2 });
 
@@ -407,7 +364,7 @@ export default class ProjectBoard extends View {
             .bg(t.raised)
             .text_size(12)
             .text_color(t.muted)
-            .child(`Couldn't refresh from Notion (${this.error}), showing the last tasks`)
+            .child(`Couldn't refresh from ${provider.name} (${this.error}), showing the last tasks`)
         )
       )
       .children(layers)
@@ -495,7 +452,7 @@ export default class ProjectBoard extends View {
       .child(div().text_size(12).text_color(t.muted).child(body));
   }
 
-  // Laid out like a Notion board card: icon + title, ID, assignees; agent avatars hang off the bottom-right corner.
+  // Laid out like a kanban card: icon + title, ID, assignees; agent avatars hang off the bottom-right corner.
   card(t, task, p, workers) {
     const z = this.view.z;
     const u = (n) => n * z;
@@ -539,7 +496,7 @@ export default class ProjectBoard extends View {
         this.drag = { key: task.key, x: world[task.key].x, y: world[task.key].y, dx: e.local_position.x / z, dy: e.local_position.y / z, group };
         cx.notify();
       })
-      .on_click((e, cx) => e.click_count >= 2 && exec("open", ["-a", "Notion", task.url]))
+      .on_click((e, cx) => e.click_count >= 2 && provider.open(task))
       .child(
         h_flex()
           .gap(u(8))
@@ -552,7 +509,7 @@ export default class ProjectBoard extends View {
           .gap(u(8))
           .items_center()
           .child(div().text_size(u(12)).text_color(t.dim).child(task.key))
-          .when(Boolean(task.inFlight), (el) => el.child(this.statusPill(t, u, task.inFlight)))
+          .when(Boolean(task.status), (el) => el.child(this.statusPill(t, u, task.status)))
       )
       .child(
         h_flex()
@@ -582,7 +539,7 @@ export default class ProjectBoard extends View {
             .top(u(8))
             .right(u(8))
             .gap(u(4))
-            .child(this.cardButton(t, u, `notion-${task.key}`, svg("mods/project-board/notion.svg").size(u(14)).text_color(t.foreground), () => exec("open", ["-a", "Notion", task.url])))
+            .child(this.cardButton(t, u, `open-${task.key}`, svg(provider.icon).size(u(14)).text_color(t.foreground), () => provider.open(task)))
         )
       );
   }
@@ -664,9 +621,9 @@ export default class ProjectBoard extends View {
   }
 
 
-  // The In Flight status: a dot and white text on a fill, colored by stage.
+  // The task's status: a dot and white text on a fill, colored by stage.
   statusPill(t, u, status) {
-    const [dot, fill] = IN_FLIGHT_COLORS[status.name === "Done" ? "done" : status.name === "Not started" ? "queued" : "progress"];
+    const [dot, fill] = STAGE_COLORS[status.stage] ?? STAGE_COLORS.progress;
     return h_flex()
       .gap(u(5))
       .items_center()
@@ -681,10 +638,10 @@ export default class ProjectBoard extends View {
 
   pageIcon(t, icon, u) {
     if (icon?.emoji) return div().text_size(u(14)).child(icon.emoji);
-    const lucide = icon?.name && this.cachedPath(`icons/${icon.name}.svg`);
-    return svg(lucide ?? "mods/project-board/page.svg")
+    const file = icon?.svg && this.cachedPath(iconFile(icon.svg));
+    return svg(file ?? "mods/project-board/page.svg")
       .size(u(16))
-      .text_color(t[ICON_COLORS[icon?.color]] ?? t.muted);
+      .text_color(t[icon?.color] ?? t.muted);
   }
 
   // Over the card's bottom-right corner, mostly inside it but breaking out of its edge. Drawn by the board right

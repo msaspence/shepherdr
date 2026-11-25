@@ -1,0 +1,24 @@
+// Where the board's tasks come from. To add an integration, write providers/<name>.js exporting an object
+// like notion.js's, and point `provider` at it.
+//
+// A provider:
+//   name        shown in errors ("Couldn't refresh from <name>")
+//   icon        an svg path for the card's "open in" button
+//   setupHint   shown under the error when nothing has loaded yet
+//   load({ onBoard })  resolves to the tasks to show (throws on failure); onBoard: Set of task keys already on the board
+//   open(task)  opens the task in its app
+//   check()     optional, run under `herdr-app check`; throws if the provider's mapping is wrong
+//
+// A task:
+//   id          the provider's id; what blockedBy refers to
+//   key         a short ID like "OI-42": positions and sessions are saved by it, and agents are matched to it
+//   title
+//   icon        { emoji } | { svg: url, color?: theme key like "ansi1" } | null
+//   status      { name, stage: "queued" | "progress" | "done" } | null: the pill on the card
+//   rank        [number, number]: sort order, lowest first; new cards are placed in this order
+//   people      [{ id, name, avatar?: url }]
+//   blockedBy   [id]
+//   url
+import notion from "./notion.js";
+
+export const provider = notion;
