@@ -69,12 +69,18 @@ function checksIcon(t, pr, s) {
   return icon("circle-check", pr.checks.length ? c.green : t.dim);
 }
 
-// A review's state, on its comments line: the speech bubble, green approved, gold pending, grey otherwise
-// (commented, dismissed); the file +/- in red for changes requested.
+// The Reviews row's icon, the worst outcome first: changes requested (red file +/-), review required (grey),
+// approved (green), pending (gold); grey when there's nothing to say.
+const reviewsIcon = (t, pr, s) => {
+  const c = C(t);
+  return s.changesRequested ? icon("file-diff", c.red)
+    : icon("badge-check", pr.decision === "REVIEW_REQUIRED" ? c.grey : s.reviews.approved ? c.green : s.reviews.pending ? c.gold : c.grey);
+};
+
 const reviewIcon = (t, state) => {
   const c = C(t);
-  return state === "CHANGES_REQUESTED" ? icon("file-diff", c.red)
-    : icon("message", state === "APPROVED" ? c.green : state === "PENDING" ? c.gold : c.grey);
+  return state === "APPROVED" ? icon("check", c.green) : state === "CHANGES_REQUESTED" ? icon("file-diff", c.red)
+    : state === "PENDING" ? icon("dot", c.gold) : state === "DISMISSED" ? icon("circle-x", c.grey) : icon("message", t.dim);
 };
 const checkIcon = (t, state) => {
   const c = C(t);
@@ -163,7 +169,7 @@ function items(t, pr, s, ctx) {
     { key: "changes", icon: icon("file-diff", t.muted), label: "Changes",
       right: [h_flex().gap(3).items_center().child(icon("file", t.dim, 13)).child(num(pr.files, t.muted)),
         num(`+${pr.additions}`, pr.additions ? c.green : c.grey), num(`-${pr.deletions}`, pr.deletions ? c.red : c.grey)] },
-    { key: "reviews", icon: icon("badge-check", t.muted), label: "Reviews", chevron: true,
+    { key: "reviews", icon: reviewsIcon(t, pr, s), label: "Reviews", chevron: true,
       right: [...counted("file-diff", c.red, s.reviews.changes), ...counted("check", c.green, s.reviews.approved), ...counted("dot", c.gold, s.reviews.pending)],
       body: (v) => reviewsMenu(v, pr) },
     { key: "comments", icon: icon("message", t.muted), label: "Comments", chevron: true,
@@ -209,10 +215,11 @@ function reviewsMenu(v, pr) {
   if (!pr.reviews.length) return note(t, "No reviews yet");
   return v_flex().gap(4).children(pr.reviews.map((r) => {
     const id = `pr${pr.number}-rv-${r.login}`;
-    const head = (el) => el.child(reviewIcon(t, r.state)).child(div().flex_1().text_size(12).text_color(t.muted).child(plural(r.comments.length, "comment")));
+    const head = (el) => el.child(icon("message", t.dim)).child(div().flex_1().text_size(12).text_color(t.muted).child(plural(r.comments.length, "comment")));
     return v_flex().rounded(6).border_1().border_color(t.border)
       .child(h_flex().h(30).px(6).gap(8).items_center()
         .child(avatar(t, r.avatar, r.login)).child(div().flex_1().min_w(0).truncate().font_semibold().child(r.login))
+        .child(reviewIcon(t, r.state))
         .child(r.url ? ghButton(t, `gh-${id}`, r.url) : div().size(22)))
       .child(r.comments.length
         ? nested(v, id, `${r.login}'s comments`, head, () => commentList(v, r.comments, id))
