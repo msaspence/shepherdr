@@ -1,9 +1,9 @@
-// The Notion provider: the person's Tech Tasks, read with the token notion-login.py saves.
+// The Notion provider: a Tech Tasks-shaped database (Task name, ID, Status, In Flight, Priority, Assignee,
+// Blocked by), read with the token notion-login.py saves. A space's config:
+//   { "provider": "notion", "dataSource": "<data source id>", "assignee": "<Notion user id>" }
 // The provider contract, and the task shape every provider returns, are documented in providers/index.js.
 import { exec, home, readTextFile } from "herdr";
 
-const DATA_SOURCE = "30f11a6a-bbaf-8046-980c-000bac8513b0"; // Tech Tasks
-const ME = "364d872b-594c-81d2-b213-00026b882893";
 const STATUSES = ["In progress", "Queued", "Done"]; // Released tasks leave the board
 const PRIORITY_RANK = { High: 0, Medium: 1, Low: 2 };
 const ICON_COLORS = { red: "ansi1", green: "ansi2", yellow: "ansi3", blue: "ansi4", purple: "ansi5", pink: "ansi13", orange: "ansi11", brown: "ansi3" };
@@ -41,11 +41,13 @@ export default {
   icon: "mods/project-board/notion.svg",
   setupHint: `Check the token in ~/${TOKEN} (re-run notion-login.py) and the connection`,
 
-  async load({ onBoard }) {
+  async load({ config, onBoard }) {
+    const { dataSource, assignee } = config;
+    if (!dataSource || !assignee) throw new Error('the space\'s config needs "dataSource" and "assignee"');
     const token = (await readTextFile(`${home()}/${TOKEN}`)).trim();
     const pages = [];
     for (let cursor; ; ) {
-      const res = await fetch(`https://api.notion.com/v1/data_sources/${DATA_SOURCE}/query`, {
+      const res = await fetch(`https://api.notion.com/v1/data_sources/${dataSource}/query`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Notion-Version": "2025-09-03", "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -53,7 +55,7 @@ export default {
           ...(cursor ? { start_cursor: cursor } : {}),
           filter: {
             and: [
-              { property: "Assignee", people: { contains: ME } },
+              { property: "Assignee", people: { contains: assignee } },
               { or: STATUSES.map((s) => ({ property: "Status", status: { equals: s } })) },
             ],
           },

@@ -1,11 +1,12 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { PathBuilder, Background } from "gpui-kit";
-import { provider } from "./providers/index.js";
+import { providers } from "./providers/index.js";
 import { agents, spaces, panes, terminals, theme, run, exec, home, appHome, readTextFile, shared, setShared, checking } from "herdr";
 
-const HYPERES = "Projects/Hyperes"; // under home; agents started from a card work in a worktree of it
-const BRANCH_OWNER = "msas"; // new task branches are <owner>/<ID>-<title_words>, the repo's convention
+// Each space's project, by space id: { "<space id>": { "provider": "notion", ...that provider's settings } }.
+// A space without an entry has no project. Re-read on every refresh, so edits show within a minute.
+const CONFIG = "data/project-board/spaces.json"; // under the app home
 const LINK_LOG = "/tmp/herdr-agent-links.jsonl";
 const LINK_TTL_MS = 10 * 60 * 1000;
 const CARD_W = 260;
@@ -73,7 +74,8 @@ export default class ProjectBoard extends View {
       ];
       this.links = [{ pair: "OI-1|OI-2", at: Date.now() }];
       this.hovered = "OI-1";
-      provider.check?.();
+      for (const p of Object.values(providers)) p.check?.();
+      this.provider = providers.notion;
       const ok = (c) => ({ __typename: "CheckRun", status: "COMPLETED", conclusion: c });
       if (prChecks([ok("SUCCESS"), ok("FAILURE")]) !== "failed" || prChecks([ok("SUCCESS"), { __typename: "CheckRun", status: "IN_PROGRESS" }]) !== "pending" || prChecks([ok("SUCCESS"), ok("SKIPPED")]) !== "passed" || prChecks([]) !== null) throw new Error("prChecks is wrong");
       if (mix("#ff0000", "#000000", 0.25) !== "#400000" || mix("nope", "#123456", 0.5) !== "#123456") throw new Error("mix is wrong");
@@ -85,6 +87,8 @@ export default class ProjectBoard extends View {
     this.load(cx);
     this.readLinks(cx);
     cx.timer.every(60_000, (cx) => this.load(cx));
+    // The board shows the shown space's project: it's the board's own space whenever the board is on screen.
+    cx.timer.every(1_000, (cx) => spaces().find((s) => s.active)?.id !== this.space && this.load(cx));
     cx.timer.every(5_000, (cx) => this.readLinks(cx));
     cx.timer.every(10_000, (cx) => this.rememberSessions(cx));
     this.loadChecks(cx);
@@ -95,9 +99,17 @@ export default class ProjectBoard extends View {
     if (this.loading) return;
     this.loading = true;
     cx.notify();
+    const space = spaces().find((s) => s.active);
+    if (space?.id !== this.space) Object.assign(this, { space: space?.id, spaceName: space?.name, tasks: [], error: null, provider: null, unconfigured: false });
     cx.spawn(async (cx) => {
       try {
-        this.tasks = await provider.load({ onBoard: new Set(Object.keys(shared(POS_KEY) ?? {})) });
+        const all = JSON.parse((await readTextFile(`${appHome()}/${CONFIG}`).catch(() => null)) || "{}");
+        const config = all[space?.id];
+        const provider = config ? providers[config.provider] : null;
+        if (config && !provider) throw new Error(`no provider called "${config.provider}" (have: ${Object.keys(providers).join(", ")})`);
+        const tasks = provider ? await provider.load({ config, onBoard: new Set(Object.keys(shared(POS_KEY) ?? {})) }) : [];
+        if (space?.id !== this.space) return; // switched space while loading
+        Object.assign(this, { unconfigured: !config, provider, tasks });
         this.error = null;
         this.freezeOldGrid();
         this.tasks.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
@@ -108,10 +120,11 @@ export default class ProjectBoard extends View {
           for (const u of task.people) if (u.avatar) await this.cache(u.avatar, `avatars/${u.id}${u.avatar.match(/\.\w+$/)?.[0] ?? ""}`);
         }
       } catch (e) {
-        this.error = String(e.message ?? e);
+        if (space?.id === this.space) this.error = String(e.message ?? e);
+      } finally {
+        this.loading = false;
+        cx.notify();
       }
-      this.loading = false;
-      cx.notify();
     });
   }
 
@@ -288,9 +301,11 @@ export default class ProjectBoard extends View {
   render(cx) {
     const t = theme();
     // Before any tasks have loaded an error is all there is to show; after, a failed refresh keeps the last cards.
+    if (this.unconfigured)
+      return this.message(t, `No project for ${this.spaceName ?? "this space"}`, `Add one under "${this.space}" in ~/.config/herdr-app/${CONFIG}`);
     if (this.error && !this.tasks.length)
-      return this.message(t, `${provider.name}: ${this.error}`, provider.setupHint);
-    if (!this.tasks.length) return this.message(t, "No tasks yet", "Loading your Queued, In progress and Done tasks…");
+      return this.message(t, `${this.provider?.name ?? "Project board"}: ${this.error}`, this.provider?.setupHint ?? `Check ~/.config/herdr-app/${CONFIG}`);
+    if (!this.tasks.length) return this.message(t, "No tasks yet", "Loading tasks…");
 
     const { x: ox, y: oy, z } = this.view;
     const world = this.positions();
@@ -364,7 +379,7 @@ export default class ProjectBoard extends View {
             .bg(t.raised)
             .text_size(12)
             .text_color(t.muted)
-            .child(`Couldn't refresh from ${provider.name} (${this.error}), showing the last tasks`)
+            .child(`Couldn't refresh from ${this.provider?.name} (${this.error}), showing the last tasks`)
         )
       )
       .children(layers)
@@ -496,7 +511,7 @@ export default class ProjectBoard extends View {
         this.drag = { key: task.key, x: world[task.key].x, y: world[task.key].y, dx: e.local_position.x / z, dy: e.local_position.y / z, group };
         cx.notify();
       })
-      .on_click((e, cx) => e.click_count >= 2 && provider.open(task))
+      .on_click((e, cx) => e.click_count >= 2 && this.provider?.open(task))
       .child(
         h_flex()
           .gap(u(8))
@@ -539,7 +554,7 @@ export default class ProjectBoard extends View {
             .top(u(8))
             .right(u(8))
             .gap(u(4))
-            .child(this.cardButton(t, u, `open-${task.key}`, svg(provider.icon).size(u(14)).text_color(t.foreground), () => provider.open(task)))
+            .child(this.cardButton(t, u, `open-${task.key}`, svg(this.provider?.icon ?? "mods/project-board/page.svg").size(u(14)).text_color(t.foreground), () => this.provider?.open(task)))
         )
       );
   }
@@ -589,35 +604,6 @@ export default class ProjectBoard extends View {
       props: { chat, provider: "claude", ...(space ? { cwd: shared("space.dirs")?.[space.id] || space.folder } : {}) },
     });
     cx.timer.after(800, () => run(`chat.type:${task.key}`));
-  }
-
-
-  // The task's checkout: the worktree of its branch (any `<who>/<ID>-…`), else a new worktree for
-  // that branch, else a new branch off the latest main. Resolves to the folder.
-  async worktree(task) {
-    const repo = `${home()}/${HYPERES}`;
-    const git = async (...args) => {
-      const r = await exec("git", ["-C", repo, ...args], { timeout: 300_000 });
-      if (r.code !== 0) throw new Error(r.stderr || `git ${args[0]} failed`);
-      return r.stdout;
-    };
-    const mine = new RegExp(`(^|/)${task.key}[-_]`, "i");
-    for (const entry of (await git("worktree", "list", "--porcelain")).split("\n\n")) {
-      const branch = entry.match(/^branch refs\/heads\/(.+)$/m)?.[1];
-      if (branch && mine.test(branch)) return entry.match(/^worktree (.+)$/m)[1];
-    }
-    const folder = `${repo}/.claude/worktrees/${task.key.toLowerCase()}`;
-    notify({ title: `Making a Hyperes worktree for ${task.key}…` });
-    const existing = (await git("for-each-ref", "--format=%(refname:short)", "refs/heads")).split("\n").find((b) => mine.test(b));
-    if (existing) {
-      await git("worktree", "add", folder, existing);
-    } else {
-      const words = task.title.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-      await git("fetch", "origin", "main").catch(() => {}); // offline: branch from the last fetched main
-      // --no-track: a bare `git push` must not aim the branch at main.
-      await git("worktree", "add", "--no-track", "-b", `${BRANCH_OWNER}/${task.key}-${words.slice(0, 5).join("_")}`, folder, "origin/main");
-    }
-    return folder;
   }
 
 
