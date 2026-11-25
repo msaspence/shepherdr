@@ -4,7 +4,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { drawerFade, sidebarIdle } from "./drawer.js";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, props, window, layout } from "herdr";
+import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, props, window, layout, home } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -316,9 +316,13 @@ export default class Agents extends View {
     const current = list.find(selected);
     const activeTitle = current ? (/^\d+$/.test(label(current)) ? current.program?.name || label(current) : label(current)) : null;
     if (shared("agents-sidebar.active-title") !== activeTitle) setShared("agents-sidebar.active-title", activeTitle);
-    // Its live folder, for opens-in; null on another machine, where this computer's apps can't open it.
-    const local = current && !spaces().find((x) => x.id === current.space)?.machine;
-    const activeCwd = (local && allPanes.find((p) => p.pane === current.pane)?.cwd) || null;
+    // Its live folder, for opens-in; with no agent selected, the space's (its first terminal's live folder, else
+    // where it was made, as the spaces list shows it). Null on another machine, where this computer's apps can't open it.
+    const space = spaces().find((x) => x.id === (current?.space ?? activeSpace));
+    const spaceTabs = new Set((space?.tabs ?? []).map((tab) => tab.id));
+    const activeCwd = !space || space.machine ? null
+      : (current ? allPanes.find((p) => p.pane === current.pane)?.cwd
+        : allPanes.find((p) => spaceTabs.has(p.tab) && p.cwd)?.cwd || space.folder || home()) || null;
     if (shared("agents-sidebar.active-cwd") !== activeCwd) setShared("agents-sidebar.active-cwd", activeCwd);
 
     const row = (a, i, subs = []) => {
