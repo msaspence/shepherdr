@@ -13,7 +13,8 @@ const WIDE = 560; // from this pane width, the PR tab is a list beside a detail 
 const I = (name) => `mods/${MOD}/icons/${name}.svg`;
 const METHODS = { squash: "Squash and merge", merge: "Create a merge commit", rebase: "Rebase and merge" };
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const lineRange = (s, e) => (s && e && s !== e ? `L${s}–${e}` : e || s ? `L${e ?? s}` : "");
+// A line span as editors take it after a path: ":12" or ":12-20", or "" with no line.
+const lineRange = (s, e) => (s && e && s !== e ? `:${s}-${e}` : e || s ? `:${e ?? s}` : "");
 const stop = (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation());
 
 // Colors: passed/approved, running/pending, failed/changes, not reporting.
@@ -138,7 +139,7 @@ function commentBody(t, c, id) {
     .child(h_flex().gap(8).items_center()
       .child(avatar(t, c.avatar, c.login)).child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
       .child(ghButton(t, `gh-${id}`, c.url)))
-    .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`)))
+    .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path}${lineRange(c.start, c.line)}`)))
     .child(TextView.markdown(`md-${id}`, c.body || "_No text_").text_size(12.5));
 }
 
@@ -154,7 +155,7 @@ function commentList(v, comments, scope) {
       const id = `${scope}-${c.id}`;
       const head = (el) => el.pl(32).child(div().flex_1().min_w(0).truncate().text_size(12)
         .child(c.path
-          ? h_flex().gap(6).child(div().min_w(0).truncate().child(c.path.split("/").pop()))
+          ? h_flex().child(div().min_w(0).truncate().child(c.path.split("/").pop()))
             .child(div().flex_none().text_color(t.dim).child(lineRange(c.start, c.line)))
           : div().truncate().text_color(t.muted).child(c.snippet)));
       if (v.inline) return nested(v, id, c.path ?? c.snippet, head, () => commentBody(t, c, id));
@@ -365,7 +366,7 @@ function conflictsMenu(v, pr) {
     .child(icon("file", t.dim, 13))
     .child(v_flex().flex_1().min_w(0).py(3).child(div().truncate().text_size(12.5).child(f.path))
       .when(f.lines.length > 0, (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim)
-        .child(f.lines.map(([a, b]) => lineRange(a, b)).join(", ")))))));
+        .child(`Lines ${f.lines.map(([a, b]) => lineRange(a, b).slice(1)).join(", ")}`))))));
 }
 
 // A row's head: icon, label, what's on the right, a chevron when it opens something.
@@ -716,7 +717,7 @@ export default class GithubPr extends View {
           .child(avatar(t, c.avatar, c.login, 20))
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
           .child(ghButton(t, "gh-comment", c.url)))
-        .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`)))
+        .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path}${lineRange(c.start, c.line)}`)))
         .child(TextView.markdown("comment-body", c.body || "_No text_").text_size(12.5)));
   }
 }
