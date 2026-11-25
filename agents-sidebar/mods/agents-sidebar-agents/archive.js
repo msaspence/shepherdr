@@ -11,8 +11,31 @@ import { checking, closeOverlay, exec, notify, openOverlay, panes, props, run, s
 const MOD = "agents-sidebar-agents";
 const prMod = () => globalThis.contextPanel?.["github-pr"];
 
-export const openArchive = (a) => openOverlay({ mod: MOD, kind: "dialog", width: 400, height: 410,
-  props: { archive: { tab: a.tab, pane: a.pane, space: a.space, name: a.name ?? null } } });
+const DEFAULTS = { local: true, commit: true, push: true, remote: false, prs: true, worktree: true };
+
+async function findPrs(info) {
+  const reg = prMod();
+  if (!info || !reg?.agentPrs) return [];
+  return reg.agentPrs(info.cwd, info.rawBranch, info.terminal);
+}
+
+// Looks first: with nothing to clean up, the tab just settles and no dialog opens. The git checks are quick;
+// PRs are only looked for here when git has nothing to offer (usually the PR panel's cached answer).
+const opening = new Set();
+export async function openArchive(a) {
+  if (opening.has(a.tab)) return;
+  opening.add(a.tab);
+  try {
+    const arch = { tab: a.tab, pane: a.pane, space: a.space, name: a.name ?? null };
+    const info = await inspect(arch);
+    const git = info && Object.entries(available(info, [], DEFAULTS)).some(([k, v]) => k !== "prs" && v);
+    const prs = git ? undefined : await findPrs(info).catch(() => []);
+    if (!git && !prs.length) return run("tab.settle", { id: a.tab });
+    openOverlay({ mod: MOD, kind: "dialog", width: 400, height: 410, props: { archive: { ...arch, info, prs } } });
+  } finally {
+    opening.delete(a.tab);
+  }
+}
 
 function gitIn(on) {
   return async (dir, ...args) => {
@@ -50,18 +73,13 @@ async function inspect(arch) {
 }
 
 export function initArchive(view, cx) {
-  view.opts = { local: true, commit: true, push: true, remote: false, prs: true, worktree: true };
-  view.info = undefined; // undefined while looking, null when there's nothing to clean up
-  view.prs = undefined;
-  if (checking()) return;
+  view.opts = { ...DEFAULTS };
   const arch = props().archive;
+  view.info = arch.info; // openArchive looked already
+  view.prs = arch.prs ?? undefined; // undefined while looking
+  if (checking() || view.prs) return;
   cx.spawn(async (cx) => {
-    view.info = await inspect(arch);
-    cx.notify();
-    const reg = prMod();
-    if (!view.info || !reg?.agentPrs) { view.prs = []; view.prsNote = view.info && !reg ? "GitHub PR mod isn't loaded" : null; return cx.notify(); }
-    try { view.prs = await reg.agentPrs(view.info.cwd, view.info.rawBranch, view.info.terminal); }
-    catch (e) { view.prs = []; view.prsNote = String(e?.message ?? e); }
+    view.prs = await findPrs(view.info).catch(() => []);
     cx.notify();
   });
 }
@@ -142,18 +160,16 @@ export function archiveDialog(view, t) {
     .cursor_pointer().on_click(onClick).child(label);
   const branch = info?.branch;
   const note = (text) => div().px(8).py(6).text_color(t.dim).child(text);
-  const rows = info ? [
+  const rows = [
     option("local", `Remove local branch ${branch}`),
     option("commit", "Include unstaged changes", true),
     option("push", "Push to origin first", true, (on) => { if (on) o.remote = false; }),
     option("remote", `Remove origin/${branch}`, false, (on) => { if (on) o.push = false; }),
     option("prs", `Close attached PRs (${(prs ?? []).map((pr) => `#${pr.number}`).join(", ")})`),
     option("worktree", "Remove worktree"),
-  ].filter(Boolean) : [];
-  const body = info === undefined ? note("Looking at the checkout…")
-    : v_flex().gap(1).children(rows)
-      .when(prs === undefined, (el) => el.child(note("Looking for PRs…")))
-      .when(!rows.length && prs !== undefined, (el) => el.child(note("Nothing to clean up.")));
+  ].filter(Boolean);
+  // openArchive opens this only when there's something to clean up.
+  const body = v_flex().gap(1).children(rows).when(prs === undefined, (el) => el.child(note("Looking for PRs…")));
   return v_flex().id("archive").size_full().bg(t.popover).text_color(t.foreground).text_size(13)
     .child(v_flex().px(18).pt(16).pb(8).gap(3).flex_none()
       .child(div().text_size(15).child("Archive agent"))
