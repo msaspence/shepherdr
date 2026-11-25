@@ -70,18 +70,22 @@ export async function setLink(terminal, url, on) {
   await readLinks();
 }
 
-// A PR's URL from what someone typed: a URL, or a number (or #number) in the agent's repo.
-export async function resolvePr(cwd, text) {
-  const s = text.trim();
-  if (/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(s)) return s.match(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/)[0];
-  if (!/^#?\d+$/.test(s)) throw new Error("Enter a pull request URL or number");
-  return (await gh(["pr", "view", s.replace("#", ""), "--json", "url", "-q", ".url"], cwd)).trim();
-}
-
 async function gh(args, cwd) {
   const r = await exec("gh", args, { cwd: cwd ?? home(), timeout: 30000 });
   if (r.code !== 0) throw new Error(r.stderr.trim().split("\n").pop() || `gh exited with ${r.code}`);
   return r.stdout;
+}
+
+// For the attach dialog: the repo a folder is a checkout of ("owner/name", or null), the repos this account can
+// see (most recently pushed first; the first 100), and a repo's open PRs.
+export async function repoOf(folder) {
+  try { return (await gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], folder)).trim() || null; } catch { return null; }
+}
+export async function listRepos() {
+  return JSON.parse(await gh(["api", "user/repos?per_page=100&sort=pushed", "--jq", "[.[].full_name]"]));
+}
+export async function openPrs(repo) {
+  return JSON.parse(await gh(["pr", "list", "-R", repo, "--state", "open", "--limit", "100", "--json", "number,title,url,author,headRefName,isDraft"]));
 }
 
 // The cached PRs for ctx's agent ({ prs, error, at } or null before the first answer), fetching again when stale.

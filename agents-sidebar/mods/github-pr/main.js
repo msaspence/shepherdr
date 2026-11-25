@@ -5,8 +5,8 @@
 // panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, TextView } from "gpui-base";
-import { closeOverlay, hc, openOverlay, props, theme } from "herdr";
-import { avatarPath, load, merge, mergeMethod, resolvePr, setAutoMerge, setLink, summarize } from "./data.js";
+import { checking, closeOverlay, hc, openOverlay, props, spaces, theme } from "herdr";
+import { avatarPath, listRepos, load, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
 
 const MOD = "github-pr";
 const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
@@ -391,50 +391,24 @@ function createButton(t, ctx) {
   });
 }
 
-// Attach and Create PR, side by side, under the PRs in the Summary and the PR tab. Attach opens a field for a PR's
-// URL or number in their place; its input is made then, since an input's state can't be made during render.
+// Create PR and Attach PR, side by side, under the PRs. Attach opens a dialog to pick any repo's open PR.
 function actions(t, ctx) {
   const { state } = ctx;
-  const row = state.input
-    ? h_flex().gap(6).items_center()
-      .child(Input.new(state.input).flex_1().h(26).px(8).rounded(6).border_1().border_color(t.input).bg(t.background).text_size(12.5))
-      .child(smallButton(t, "gh-attach", "check", state.attaching ? "Attaching…" : "Attach", state.attaching ? null : (_e, cx) => attach(ctx, cx)))
-      .child(stop(div().id("gh-attach-cancel").size(26).flex().flex_none().items_center().justify_center().rounded(6).cursor_pointer()
-        .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Cancel")
-        .on_click((_e, cx) => { state.input.release(); state.input = null; state.linkError = null; cx.notify(); })
-        .child(svg(I("x")).size(13))))
-    : h_flex().gap(6).items_center()
+  state.shown = (load(ctx)?.prs ?? []).map((pr) => pr.url);
+  return v_flex().gap(4).px(4).pt(6)
+    .child(h_flex().gap(6).items_center()
+      .child(createButton(t, ctx))
       .child(smallButton(t, "gh-attach-open", "git-merge", "Attach PR", (_e, cx) => {
-        state.input = InputState.new({ placeholder: "PR URL or number" });
-        state.input.on("submit", (_e, cx) => attach(ctx, cx));
-        state.input.focus();
-        state.linkError = null;
+        try {
+          const space = spaces().find((sp) => sp.tabs?.some((tb) => tb.id === ctx.agent.tab));
+          openOverlay({ mod: MOD, kind: "dialog", width: 480, height: 520,
+            props: { variant: "attach", terminal: ctx.agent.terminal, folder: space?.folder || ctx.cwd, shown: state.shown ?? [] } });
+        } catch (e) {
+          state.linkError = `Couldn't open the dialog: ${e?.message ?? e}`;
+        }
         cx.notify();
-      }))
-      .child(createButton(t, ctx));
-  return v_flex().gap(4).px(4).pt(6).child(row)
+      })))
     .when(Boolean(state.linkError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.linkError)));
-}
-
-function attach(ctx, cx) {
-  const { state } = ctx;
-  const text = state.input.value();
-  const term = ctx.agent?.terminal;
-  if (!text.trim() || !term || state.attaching) return;
-  state.attaching = true;
-  state.linkError = null;
-  cx.spawn(async (cx) => {
-    try {
-      await setLink(term, await resolvePr(ctx.cwd, text), true);
-      state.input.release();
-      state.input = null;
-    } catch (e) {
-      state.linkError = String(e?.message ?? e);
-    }
-    state.attaching = false;
-    cx.notify();
-  });
-  cx.notify();
 }
 
 const register = {
@@ -465,9 +439,10 @@ const register = {
 (globalThis.contextPanel ??= {})[MOD] = register;
 
 export default class GithubPr extends View {
-  init() {
+  init(_props, cx) {
     const p = props() ?? {};
     this.variant = p.variant ?? null;
+    if (this.variant === "attach") this.initAttach(p, cx);
     if (this.variant === "merge") {
       this.method = mergeMethod(p.pr);
       this.deleteBranch = false;
@@ -478,7 +453,104 @@ export default class GithubPr extends View {
     const t = theme();
     if (this.variant === "merge") return this.mergeDialog(t);
     if (this.variant === "comment") return this.comment(t);
+    if (this.variant === "attach") return this.attachDialog(t);
     return div();
+  }
+
+  // The attach dialog: a repo (the space's to start with), then its open PRs; picking one attaches it to the agent.
+  initAttach(p, cx) {
+    this.repos = null; // ["owner/name"], once listed
+    this.repo = null;
+    this.prs = null; // the repo's open PRs, once listed
+    this.error = null;
+    this.repoFilter = InputState.new({ placeholder: "Filter repositories" });
+    this.repoFilter.on("change", (_e, cx) => cx.notify());
+    this.prFilter = InputState.new({ placeholder: "Filter pull requests" });
+    this.prFilter.on("change", (_e, cx) => cx.notify());
+    if (checking()) return;
+    cx.spawn(async (cx) => {
+      const repo = await repoOf(p.folder);
+      if (!this.repo) this.pickRepo(repo, cx);
+      try { this.repos = await listRepos(); } catch (e) { this.repos = []; this.error ??= String(e?.message ?? e); }
+      if (repo && !this.repos.includes(repo)) this.repos.unshift(repo);
+      if (!this.repo && this.repos[0]) this.pickRepo(this.repos[0], cx);
+      cx.notify();
+    });
+  }
+
+  pickRepo(repo, cx) {
+    if (!repo) return;
+    this.repo = repo;
+    this.prs = null;
+    this.error = null;
+    this.repoOpen = false;
+    cx.spawn(async (cx) => {
+      try {
+        const prs = await openPrs(repo);
+        if (this.repo === repo) this.prs = prs;
+      } catch (e) {
+        if (this.repo === repo) { this.prs = []; this.error = String(e?.message ?? e); }
+      }
+      cx.notify();
+    });
+    cx.notify();
+  }
+
+  attachDialog(t) {
+    const p = props();
+    const field = (state) => Input.new(state).h(28).px(8).rounded(6).border_1().border_color(t.input).bg(t.background).text_size(12.5);
+    const rf = this.repoFilter.value().toLowerCase(), pf = this.prFilter.value().toLowerCase();
+    const repos = (this.repos ?? []).filter((r) => r.toLowerCase().includes(rf));
+    const prs = (this.prs ?? []).filter((pr) => `#${pr.number} ${pr.title} ${pr.author?.login} ${pr.headRefName}`.toLowerCase().includes(pf));
+    const picker = Popover.new("attach-repo").anchor("top_left").open(Boolean(this.repoOpen))
+      .on_open_change((open, cx) => { this.repoOpen = open; if (open) this.repoFilter.focus(); cx.notify(); })
+      .trigger(h_flex().id("attach-repo-trigger").h(30).px(8).gap(8).items_center().rounded(6).border_1().border_color(t.input)
+        .cursor_pointer().hover((s) => s.bg(t.hover))
+        .child(icon("git-merge", t.muted)).child(div().flex_1().min_w(0).truncate().child(this.repo ?? "Choose a repository"))
+        .child(icon("chevron-down", t.dim, 12)))
+      .content(div().pt(4).child(v_flex().w(452).p(6).gap(4).rounded(8).bg(t.popover).border_1().border_color(t.border).shadow_lg()
+        .text_size(13).text_color(t.foreground)
+        .child(field(this.repoFilter))
+        .child(v_flex().id("attach-repos").max_h(260).overflow_y_scrollbar()
+          .when(!this.repos, (el) => el.child(note(t, "Loading repositories…")))
+          .children(repos.map((r, i) => entry(t, `repo-${i}`, (_e, cx) => this.pickRepo(r, cx))
+            .when(r === this.repo, (el) => el.bg(t.selected)).child(div().flex_1().min_w(0).truncate().child(r)))))));
+    const list = !this.repo ? note(t, this.repos ? "Choose a repository" : "Loading…")
+      : !this.prs ? note(t, "Loading pull requests…")
+      : !prs.length ? note(t, this.prs.length ? "No pull requests match" : `No open pull requests in ${this.repo}`)
+      : v_flex().gap(1).children(prs.map((pr) => {
+        const shown = (p.shown ?? []).includes(pr.url);
+        return entry(t, `pr-${pr.number}`, shown || this.busy ? null : (_e, cx) => {
+          this.busy = true;
+          cx.spawn(async (cx) => {
+            try {
+              await setLink(p.terminal, pr.url, true);
+              closeOverlay(p.overlay);
+            } catch (e) {
+              this.error = String(e?.message ?? e);
+            }
+            this.busy = false;
+            cx.notify();
+          });
+          cx.notify();
+        })
+          .child(icon("git-pull-request", pr.isDraft ? t.dim : C(t).green))
+          .child(v_flex().flex_1().min_w(0).py(4)
+            .child(h_flex().gap(6).child(div().flex_none().text_color(t.dim).child(`#${pr.number}`))
+              .child(div().min_w(0).truncate().text_color(shown ? t.dim : t.foreground).child(pr.title)))
+            .child(div().truncate().text_size(11.5).text_color(t.dim).child(`${pr.author?.login ?? "ghost"} · ${pr.headRefName}`)))
+          .when(shown, (el) => el.child(div().flex_none().text_size(11.5).text_color(t.dim).child("Shown")));
+      }));
+    return v_flex().id("attach").size_full().bg(t.popover).text_color(t.foreground).text_size(13)
+      .child(v_flex().px(18).pt(16).pb(10).gap(3).flex_none()
+        .child(div().text_size(15).child("Attach a pull request"))
+        .child(div().text_size(12).text_color(t.muted).child("It shows in this agent's panel, whatever its branch.")))
+      .child(v_flex().px(14).gap(8).flex_none().child(picker).child(field(this.prFilter)))
+      .child(div().id("attach-prs").flex_1().min_h(0).mx(10).mt(6).overflow_y_scrollbar().child(list))
+      .when(Boolean(this.error), (el) => el.child(div().px(18).pt(6).text_size(12).text_color(t.blocked).child(this.error)))
+      .child(h_flex().px(18).py(12).flex_none().justify_end().border_t_1().border_color(t.border)
+        .child(div().id("attach-cancel").h(28).px(12).flex().items_center().rounded(7).text_size(12.8).cursor_pointer()
+          .border_1().border_color(t.border).hover((s) => s.bg(t.hover)).on_click(() => closeOverlay(p.overlay)).child("Cancel")));
   }
 
   comment(t) {
