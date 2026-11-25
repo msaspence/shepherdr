@@ -354,7 +354,7 @@ function tabView(t, prs, ctx, loading) {
   const all = groups.flatMap(({ pr, list }) => list.map((it) => ({ pr, it })));
   const sel = all.find(({ pr, it }) => it.body && key(pr, it) === state.sel) ?? all.find(({ it }) => it.key === "status");
   const label = (it) => (it.key === "status" ? "Status" : typeof it.label === "string" ? it.label : "Pull request");
-  return h_flex().gap(10)
+  return h_flex().items_stretch().gap(10) // both columns full height, content at the top
     .child(v_flex().w(260).flex_none().gap(12)
       .children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) =>
         rowHead(t, `tab-${key(pr, it)}`, { ...it, chevron: Boolean(it.body) }, { active: it === sel?.it })
