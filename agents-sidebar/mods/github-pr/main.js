@@ -267,20 +267,25 @@ function statusMenu(v, pr, s) {
     .when(green && enabled, (e) => e.bg(c.green).text_color(t.background))
     .when(!green || !enabled, (e) => e.bg(t.raised).border_1().border_color(t.border).text_color(enabled ? t.foreground : t.dim))
     .when(enabled, (e) => e.cursor_pointer().hover((st) => st.opacity(0.9)));
-  // A button with an arrow that picks the merge method.
+  // A split button's half: just the fill, since the border goes round the whole button.
+  const fill = (el, green, enabled) => el.h_full().items_center()
+    .bg(green && enabled ? c.green : t.raised).text_color(green && enabled ? t.background : enabled ? t.foreground : t.dim)
+    .when(enabled, (e) => e.cursor_pointer().hover((st) => st.opacity(0.9)));
+  // A button with an arrow that picks the merge method: one rounded outline (grey ones) with a 1px divider (the
+  // theme's background on green, the border colour on grey).
   const split = (id, label, green, enabled, onClick) => {
     const key = `${id}-${pr.url}`;
     // A bare Popup the arrow toggles: a Popover here would be nested in the row's dropdown and fight it for clicks.
     const open = state.methodsFor === key;
-    const arrow = Popup.new(`${id}-methods`, look(h_flex().id(`${id}-arrow`).px(6).rounded_r(6), green, enabled)
-        .border_l_1().border_color(t.background).on_click((_e, cx) => {
+    const arrow = Popup.new(`${id}-methods`, fill(h_flex().id(`${id}-arrow`).px(6), green, enabled)
+        .border_l_1().border_color(green && enabled ? t.background : t.border).on_click((_e, cx) => {
           // A press on the arrow already closed an open menu (outside it): don't reopen it on the same click.
           if (!open && Date.now() - (state.methodsClosedAt ?? 0) < 400) return;
           state.methodsFor = open ? null : key;
           cx.notify();
         })
         .child(icon("chevron-down", green && enabled ? t.background : t.muted, 12)))
-      .anchor("top_right")
+      .anchor("top_right").h_full() // the Popup is a box round the arrow: full height, so the arrow's fill is
       .when(open, (el) => el.content(div().pt(4).child(v_flex().id(`${id}-method-menu`).w(220).p(4).gap(1).rounded(8).bg(t.popover).border_1().border_color(t.border)
         .on_mouse_down_out((_e, cx) => { state.methodsFor = null; state.methodsClosedAt = Date.now(); cx.notify(); }) // a press elsewhere closes it
         .shadow_lg().text_size(13).text_color(t.foreground)
@@ -290,9 +295,9 @@ function statusMenu(v, pr, s) {
           cx.notify();
         }).child(div().size(12).flex_none().child(m === method ? icon("check", t.foreground, 12) : div())).child(METHODS[m]))))));
     const hasArrow = pr.methods.length > 1 && enabled;
-    return h_flex().font_semibold()
-      .child(look(h_flex().id(id).px(10), green, enabled).when(hasArrow, (el) => el.rounded_l(6)).when(!hasArrow, (el) => el.rounded(6))
-        .when(enabled, (el) => el.on_click(onClick)).child(label))
+    return h_flex().h(28).rounded(6).overflow_hidden().font_semibold()
+      .when(!(green && enabled), (el) => el.border_1().border_color(t.border))
+      .child(fill(h_flex().id(id).px(10), green, enabled).when(enabled, (el) => el.on_click(onClick)).child(label))
       .when(hasArrow, (el) => el.child(arrow));
   };
   const plain = (id, label, onClick) => look(h_flex().id(id).px(10).rounded(6).font_semibold(), false, Boolean(onClick))
