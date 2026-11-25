@@ -174,8 +174,8 @@ dialog: method, delete the branch on GitHub) and Auto-merge), changes, reviews, 
 comments grouped by author, each labelled file + lines, or the start of its text; one opens in a popup), checks (required ones not reporting come from branch protection) and
 conflicts (worked out locally: `git fetch origin <base>` then `git merge-tree --write-tree` against HEAD, only
 when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list replaces the menu with a back row.
-In the PR tab the same rows expand in place below 560px, and from 560px are a list beside the selected row's
-content; nested lists and comments then expand in place. An agent's PRs are its branch's open PRs plus ones attached to it, minus ones removed from it (a removed
+In the PR tab the same rows expand in place below 560px, and from 560px are one list of every PR's rows beside a
+single pane with the selected row's content (headed "#n · Row" when there are several PRs); nested lists and comments then expand in place. An agent's PRs are its branch's open PRs plus ones attached to it, minus ones removed from it (a removed
 branch PR isn't added back). Kept per agent terminal in `mods/github-pr/.links.json` (`{ "<terminal>": { "add":
 [url], "drop": [url] } }`, git-ignored). The PR tab's repo heading has an × to remove it. Under the PRs in the PR tab (in the Summary only while there are none), two small
 buttons side by side: Create New, then Attach Existing (a 480×520 dialog: a repository picker, defaulting to the

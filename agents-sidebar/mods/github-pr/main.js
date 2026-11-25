@@ -328,34 +328,39 @@ function summaryRows(t, pr, ctx) {
   }));
 }
 
-// The PR tab: narrow, rows expand in place; wide, a list beside the selected row's content.
-function tabRows(t, pr, ctx) {
-  const s = summarize(pr);
+// The PR tab: narrow, each PR's rows expand in place; wide, every PR's rows in one list beside a single pane with
+// the selected row's content.
+function tabView(t, prs, ctx, loading) {
   const { state } = ctx;
   const v = { t, inline: true, state, pages: {} };
+  const key = (pr, it) => `pr${pr.number}-${it.key}`;
   // The title row is the tab's heading here: nothing to open; its GitHub button, and one to remove the PR from
   // this agent (it stays removed, even if it's the agent's branch's).
-  const list = items(t, pr, s, ctx).map((it) => (it.key === "title"
-    ? { ...it, body: null, click: null, right: [...it.right, removeButton(t, pr, ctx)] } : it));
-  const wide = ctx.width >= WIDE;
-  const key = (it) => `pr${pr.number}-${it.key}`;
-  if (!wide) {
-    return v_flex().gap(1).children(list.map((it) => {
-      const open = Boolean(state.exp?.[key(it)]);
+  const groups = prs.map((pr) => ({ pr, list: items(t, pr, summarize(pr), ctx).map((it) => (it.key === "title"
+    ? { ...it, body: null, click: null, right: [...it.right, removeButton(t, pr, ctx)] } : it)) }));
+  if (ctx.width < WIDE) {
+    return v_flex().gap(12).children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) => {
+      const k = key(pr, it), open = Boolean(state.exp?.[k]);
       return v_flex()
-        .child(rowHead(t, `tab-${key(it)}`, { ...it, chevron: Boolean(it.body) }, { open })
-          .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { (state.exp ??= {})[key(it)] = !open; cx.notify(); })))
+        .child(rowHead(t, `tab-${k}`, { ...it, chevron: Boolean(it.body) }, { open })
+          .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { (state.exp ??= {})[k] = !open; cx.notify(); })))
         .when(open && Boolean(it.body), (el) => el.child(div().pl(22).pr(4).pb(6).child(it.body(v))));
-    }));
+    })))).children(loading);
   }
-  const sel = list.find((it) => it.body && key(it) === state.sel) ?? list.find((it) => it.key === "status");
-  return h_flex().items_start().gap(10)
-    .child(v_flex().w(260).flex_none().gap(1).children(list.map((it) =>
-      rowHead(t, `tab-${key(it)}`, { ...it, chevron: Boolean(it.body) }, { active: it === sel })
-        .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { state.sel = key(it); cx.notify(); })))))
+  const all = groups.flatMap(({ pr, list }) => list.map((it) => ({ pr, it })));
+  const sel = all.find(({ pr, it }) => it.body && key(pr, it) === state.sel) ?? all.find(({ it }) => it.key === "status");
+  const label = (it) => (it.key === "status" ? "Status" : typeof it.label === "string" ? it.label : "Pull request");
+  return h_flex().gap(10)
+    .child(v_flex().w(260).flex_none().gap(12)
+      .children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) =>
+        rowHead(t, `tab-${key(pr, it)}`, { ...it, chevron: Boolean(it.body) }, { active: it === sel?.it })
+          .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { state.sel = key(pr, it); cx.notify(); }))))))
+      .children(loading))
     .child(v_flex().flex_1().min_w(0).pl(10).border_l_1().border_color(t.border).gap(4)
-      .child(div().h(30).flex().items_center().px(6).text_size(12).font_semibold().text_color(t.dim).child(sel.key === "status" ? "Status" : typeof sel.label === "string" ? sel.label : "Pull request"))
-      .child(sel.body(v)));
+      .when(Boolean(sel), (el) => el
+        .child(div().h(30).flex().items_center().px(6).text_size(12).font_semibold().text_color(t.dim)
+          .child(prs.length > 1 ? `#${sel.pr.number} · ${label(sel.it)}` : label(sel.it)))
+        .child(sel.it.body(v))));
 }
 
 const removeButton = (t, pr, ctx) => stop(div().id(`rm-${pr.number}`).size(22).flex().flex_none().items_center().justify_center()
@@ -489,7 +494,7 @@ const register = {
     ctx.showRepo = showRepo(ctx, e.prs);
     const body = e.error && !e.prs ? msg(e.error, t.blocked)
       : !e.prs?.length && !loading.length ? msg(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request")
-      : v_flex().gap(12).children((e.prs ?? []).map((pr) => tabRows(t, pr, ctx))).children(loading);
+      : tabView(t, e.prs ?? [], ctx, loading);
     return v_flex().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
   },
 };
