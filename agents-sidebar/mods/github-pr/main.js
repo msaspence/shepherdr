@@ -273,7 +273,7 @@ function statusMenu(v, pr, s) {
     // A bare Popup the arrow toggles: a Popover here would be nested in the row's dropdown and fight it for clicks.
     const open = state.methodsFor === key;
     const arrow = Popup.new(`${id}-methods`, look(h_flex().id(`${id}-arrow`).px(6).rounded_r(6), green, enabled)
-        .border_l_1().border_color(t.border).on_click((_e, cx) => { state.methodsFor = open ? null : key; cx.notify(); })
+        .border_l_1().border_color(t.background).on_click((_e, cx) => { state.methodsFor = open ? null : key; cx.notify(); })
         .child(icon("chevron-down", green && enabled ? t.background : t.muted, 12)))
       .anchor("top_right")
       .when(open, (el) => el.content(div().pt(4).child(v_flex().w(220).p(4).gap(1).rounded(8).bg(t.popover).border_1().border_color(t.border)
@@ -479,7 +479,7 @@ function actions(t, ctx) {
   state.shown = (load(ctx)?.prs ?? []).map((pr) => pr.url);
   return v_flex().gap(4).px(4).pt(20)
     .child(h_flex().gap(6).items_center()
-      .child(createButton(t, ctx))
+      .when(!state.shown?.length && !attachingFor(ctx.agent?.terminal).length, (el) => el.child(createButton(t, ctx))) // only with no PR
       .child(smallButton(t, "gh-attach-open", "link", "Attach Existing", (_e, cx) => {
         try {
           const folders = spaceFolders(ctx);
