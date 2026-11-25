@@ -104,7 +104,7 @@ export default class Panel extends View {
       .child(this.tabs(t, cx))
       .child(HERDR_TABS.has(this.active)
         ? v_flex().id("panel-body").flex_1().min_h(0).p(4).child(this.herdrTab(t, this.active, cx))
-        : v_flex().id("panel-body").flex_1().min_h(0).p(10).gap(2).overflow_y_scrollbar().child(this.content(t, cx))));
+        : v_flex().id("panel-body").flex_1().min_h(0).py(10).px(14).gap(2).overflow_y_scrollbar().child(this.content(t, cx))));
   }
 
   // The active tab, or Summary once it's been turned off or its mod is gone.
