@@ -258,7 +258,8 @@ function rowHead(t, id, it, { active, open } = {}) {
     .when(Boolean(active), (el) => el.bg(t.selected))
     .child(it.icon)
     .child(div().flex_1().min_w(0).truncate().child(it.label))
-    .child(h_flex().gap(6).flex_none().items_center().text_size(12).children(it.right ?? []))
+    // Without a chevron, inset to where the chevron's stroke ends, so right edges line up down the list.
+    .child(h_flex().gap(6).flex_none().items_center().text_size(12).when(!it.chevron, (el) => el.mr(3)).children(it.right ?? []))
     .when(Boolean(it.chevron), (el) => el.child(icon(open ? "chevron-down" : "chevron-right", t.dim, 12)));
 }
 
@@ -295,7 +296,8 @@ function tabRows(t, pr, ctx) {
   const s = summarize(pr);
   const { state } = ctx;
   const v = { t, inline: true, state, pages: {} };
-  const list = items(t, pr, s, ctx);
+  // The repo row is the tab's heading here: nothing to open (its GitHub button still works).
+  const list = items(t, pr, s, ctx).map((it) => (it.key === "repo" ? { ...it, body: null, click: null } : it));
   const wide = ctx.width >= WIDE;
   const key = (it) => `pr${pr.number}-${it.key}`;
   if (!wide) {
