@@ -3,7 +3,7 @@
 // with the toggle where the bar has it ("keep open").
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { props, run, theme, window } from "herdr";
+import { props, run, shared, theme, window } from "herdr";
 
 // props.cursor: this copy is agents-sidebar-agents' full-window cursor layer during a sidebar drag (see drawer.js).
 const cursorLayer = (kind) => {
@@ -27,6 +27,9 @@ export default class SideTitlebar extends View {
         // Not a window drag.
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click(() => run("agents-sidebar-agents.collapse"))
-        .child(svg("mods/workspace-chrome/sidebar.svg").size(15)));
+        .child(svg("mods/workspace-chrome/sidebar.svg").size(15)))
+      // The selected agent's name (agents-sidebar-agents publishes it); the drawer's spacer copy leaves it out.
+      .when(!peek && Boolean(shared("agents-sidebar.active-title")), (el) =>
+        el.child(div().ml(8).flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(shared("agents-sidebar.active-title"))));
   }
 }

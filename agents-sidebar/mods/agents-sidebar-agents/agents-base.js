@@ -311,6 +311,10 @@ export default class Agents extends View {
     for (const a of list) {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
+    // The selected row's name, for the title bar.
+    const current = list.find(selected);
+    const activeTitle = current ? (/^\d+$/.test(label(current)) ? current.program?.name || label(current) : label(current)) : null;
+    if (shared("agents-sidebar.active-title") !== activeTitle) setShared("agents-sidebar.active-title", activeTitle);
 
     const row = (a, i, subs = []) => {
       const pic = icon(a.program, 16, t.foreground);
