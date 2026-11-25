@@ -5,8 +5,8 @@
 // panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, TextView } from "gpui-base";
-import { checking, closeOverlay, hc, openOverlay, panes, props, spaces, theme } from "herdr";
-import { attachingFor, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
+import { checking, closeOverlay, hc, openOverlay, panes, props, setShared, shared, spaces, theme } from "herdr";
+import { METHOD_KEY, attachingFor, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
 
 const MOD = "github-pr";
 const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
@@ -214,27 +214,56 @@ function blockers(t, pr, s) {
   return out;
 }
 
+// Modelled on GitHub's merge box: a haloed state icon, a heading and what it means, then a split merge button
+// (the caret picks the method) and auto-merge.
 function statusMenu(v, pr, s) {
   const { t, state } = v;
-  if (!s.open) return note(t, pr.state === "MERGED" ? "This pull request was merged" : "This pull request was closed");
+  const c = C(t);
+  const badge = (color, name) => div().relative().size(32).flex_none()
+    .child(div().absolute().inset_0().rounded_full().bg(color).opacity(0.2))
+    .child(div().absolute().inset(4).rounded_full().bg(color).flex().items_center().justify_center()
+      .child(icon(name, t.background, 14)));
+  const header = (mark, title, sub) => h_flex().gap(10).items_start().p(6)
+    .child(mark)
+    .child(v_flex().flex_1().min_w(0).gap(2)
+      .child(div().font_semibold().child(title))
+      .child(sub));
+  const line = (text) => div().text_size(12).text_color(t.muted).child(text);
+  if (!s.open) return pr.state === "MERGED"
+    ? header(badge(t.ansi5, "git-merge"), "Merged", line("This pull request was merged"))
+    : header(badge(c.grey, "x"), "Closed", line("This pull request was closed"));
+
+  const severe = s.conflicting || s.changesRequested || s.failing;
+  const mark = s.ready ? badge(c.green, "check") : severe ? badge(c.red, "x") : badge(s.checks.running ? c.gold : c.grey, "dot");
+  const sub = s.ready ? line("All requirements are met - merge the pull request.")
+    : v_flex().gap(2).children(blockers(t, pr, s).map(([m, text]) =>
+      h_flex().min_h(20).gap(6).items_center().text_size(12).text_color(t.muted).child(m).child(div().flex_1().min_w(0).child(text))));
+
+  const method = mergeMethod(pr), picking = state.methodsFor === pr.url;
+  const half = (id, onClick) => h_flex().id(id).h(28).items_center().bg(s.ready ? c.green : t.raised)
+    .text_color(s.ready ? t.background : t.dim)
+    .when(s.ready, (el) => el.cursor_pointer().hover((st) => st.opacity(0.9)).on_click(onClick));
+  const split = h_flex().rounded(6).overflow_hidden().font_semibold()
+    .child(half(`merge-${pr.number}`, (_e, cx) => {
+      state.open = null;
+      openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
+      cx.notify();
+    }).px(10).child(METHODS[method]))
+    .when(pr.methods.length > 1, (el) => el.child(half(`methods-${pr.number}`, (_e, cx) => { state.methodsFor = picking ? null : pr.url; cx.notify(); })
+      .px(6).border_l_1().border_color(t.border).child(icon("chevron-down", s.ready ? t.background : t.dim, 12))));
+  const methods = v_flex().gap(1).children(pr.methods.map((m) => entry(t, `method-${pr.number}-${m}`, (_e, cx) => {
+    state.methodsFor = null;
+    if (shared(METHOD_KEY) !== m) setShared(METHOD_KEY, m);
+    cx.notify();
+  }).child(div().size(12).flex_none().child(m === method ? icon("check", t.foreground, 12) : div())).child(METHODS[m])));
+
   const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
     .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).text_color(t.accent_foreground).child(icon("check", t.accent_foreground, 11)));
   const busy = state.autoBusy === pr.url;
-  return v_flex().gap(2)
-    // Ready: a solid button that opens the merge dialog. Blocked: a dim line, with the reasons under it.
-    .child(s.ready
-      ? h_flex().px(2).py(2).child(h_flex().id(`merge-${pr.number}`).h(28).px(10).gap(8).items_center().rounded(6)
-        .bg(t.solid).cursor_pointer().text_color(t.solid_foreground).hover((st) => st.opacity(0.9))
-        .on_click((_e, cx) => {
-          state.open = null;
-          openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
-          cx.notify();
-        })
-        .child(icon("git-merge", t.solid_foreground)).child("Merge…"))
-      : entry(t, `merge-${pr.number}`, null).text_color(t.dim)
-        .child(icon("git-merge", t.dim)).child(div().flex_1().child("Merging is blocked")))
-    .when(!s.ready, (el) => el.child(v_flex().pl(28).pr(6).pb(4).gap(2).children(blockers(t, pr, s).map(([mark, text]) =>
-      h_flex().min_h(20).gap(6).items_center().text_size(12).text_color(t.muted).child(mark).child(div().flex_1().min_w(0).child(text))))))
+  return v_flex().gap(4)
+    .child(header(mark, s.ready ? "Ready to merge" : "Merging is blocked", sub))
+    .child(v_flex().pl(48).pr(6).gap(4).child(h_flex().child(split)).when(s.ready && picking, (el) => el.child(methods)))
+    .child(div().h(1).mx(6).my(2).bg(t.border))
     .child(entry(t, `auto-${pr.number}`, pr.canAuto && !busy ? (_e, cx) => {
         state.autoBusy = pr.url;
         state.autoError = null;
