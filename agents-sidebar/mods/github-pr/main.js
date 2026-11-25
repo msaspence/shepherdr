@@ -366,10 +366,10 @@ function tabView(t, prs, ctx, loading) {
   const { state } = ctx;
   const v = { t, inline: true, state, pages: {} };
   const key = (pr, it) => `pr${pr.number}-${it.key}`;
-  // The title row is the tab's heading here: nothing to open; its GitHub button, and one to remove the PR from
-  // this agent (it stays removed, even if it's the agent's branch's).
+  // The title row is the tab's heading here: nothing to open but its GitHub button. Unlink goes under the PR's rows.
   const groups = prs.map((pr) => ({ pr, list: items(t, pr, summarize(pr), ctx).map((it) => (it.key === "title"
-    ? { ...it, body: null, click: null, right: [...it.right, removeButton(t, pr, ctx)] } : it)) }));
+    ? { ...it, body: null, click: null } : it)) }));
+  const unlink = (pr) => h_flex().pt(4).justify_end().child(removeButton(t, pr, ctx));
   if (ctx.width < WIDE) {
     return v_flex().gap(12).children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) => {
       const k = key(pr, it), open = Boolean(state.exp?.[k]);
@@ -378,7 +378,7 @@ function tabView(t, prs, ctx, loading) {
         .child(rowHead(t, `tab-${k}`, { ...it, chevron: Boolean(it.body) }, { open })
           .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { (state.exp ??= {})[k] = !open; cx.notify(); })))
         .when(open && Boolean(it.body), (el) => el.child(div().pl(22).pr(4).pb(6).child(it.body(v))));
-    })))).children(loading);
+    })).child(unlink(pr)))).children(loading);
   }
   const all = groups.flatMap(({ pr, list }) => list.map((it) => ({ pr, it })));
   const sel = all.find(({ pr, it }) => it.body && key(pr, it) === state.sel) ?? all.find(({ it }) => it.key === "status");
@@ -387,7 +387,8 @@ function tabView(t, prs, ctx, loading) {
     .child(v_flex().w(260).flex_none().gap(12)
       .children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) =>
         rowHead(t, `tab-${key(pr, it)}`, { ...it, chevron: Boolean(it.body) }, { active: it === sel?.it })
-          .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { state.sel = key(pr, it); cx.notify(); }))))))
+          .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { state.sel = key(pr, it); cx.notify(); }))))
+        .child(unlink(pr))))
       .children(loading))
     .child(v_flex().flex_1().min_w(0).pl(10).border_l_1().border_color(t.border).gap(4)
       .when(Boolean(sel), (el) => el
