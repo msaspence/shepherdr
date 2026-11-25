@@ -185,10 +185,11 @@ function items(t, pr, s, ctx) {
       right: [[s.checks.passed, c.green], [s.checks.running, c.gold], [s.checks.failed, c.red], [s.checks.missing, c.grey]]
         .filter(([n]) => n).map(([n, color]) => num(n, color)),
       body: (v) => checksMenu(v, pr) },
-    // Only while GitHub says the PR conflicts ("?" until the files are worked out locally).
-    s.conflicting && { key: "conflicts", icon: icon("git-conflict", c.red), label: "Conflicts", chevron: true,
-      right: [num(pr.conflicts?.length ?? "?", c.red)], body: (v) => conflictsMenu(v, pr) },
-  ].filter(Boolean);
+    // "?" until the files are worked out locally. With none, the Summary leaves the row out (see summaryRows).
+    { key: "conflicts", icon: s.conflicting ? icon("git-conflict", c.red) : icon("git-merge", t.muted), label: "Conflicts", chevron: true,
+      right: [num(s.conflicting ? (pr.conflicts?.length ?? "?") : 0, s.conflicting ? c.red : t.muted)],
+      body: (v) => conflictsMenu(v, pr, s) },
+  ];
 }
 
 function statusMenu(v, pr, s) {
@@ -245,8 +246,9 @@ function checksMenu(v, pr) {
         .when(ch.required, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Required"))))));
 }
 
-function conflictsMenu(v, pr) {
+function conflictsMenu(v, pr, s) {
   const { t } = v;
+  if (!s.conflicting) return note(t, "No conflicts");
   if (!pr.conflicts?.length) return note(t, `GitHub reports conflicts with ${pr.base}, but they couldn't be worked out from this checkout`);
   return v_flex().gap(1).children(pr.conflicts.map((f, i) => entry(t, `pr${pr.number}-cf-${i}`, null)
     .child(icon("file", t.dim, 13))
@@ -285,7 +287,7 @@ function menu(t, it, state) {
 function summaryRows(t, pr, ctx) {
   const s = summarize(pr);
   const { state } = ctx;
-  return v_flex().children(items(t, pr, s, ctx).map((it) => {
+  return v_flex().children(items(t, pr, s, ctx).filter((it) => it.key !== "conflicts" || s.conflicting).map((it) => {
     const id = `ghpr-${pr.number}-${it.key}`;
     if (!it.body || it.click) return rowHead(t, id, it).when(Boolean(it.click), (el) => el.on_click(it.click));
     return Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
