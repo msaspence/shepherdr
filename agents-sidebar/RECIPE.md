@@ -165,7 +165,9 @@ The panel scans `mods/*/mod.json` for tab mods when it opens, so a newly install
 
 **github-pr** (`mods/github-pr`, tab "Pull Request", "Pull Requests" with more than one): the agent's branch's open pull request, from `gh pr list --head`
 and one GraphQL query per PR (`data.js`, cached per folder and branch, refetched every 30s while shown).
-Summary lines under "Pull Request": repo + `#n` (click: the PR tab; GitHub icon: the browser), status (an
+Summary lines under "Pull Request": the repo (`book-marked.svg`, owner/name; only when some PR shown isn't from the
+space's repo, and then on every PR), then `#n` (dim, in the icon's place) + title (click: the PR tab; GitHub
+icon: the browser), then indented 8px: status (an
 indicator, first that applies: red ring for conflicts, approved/changes/pending arcs when changes are requested,
 passed/running/failed/not-reporting arcs when checks fail, green check when ready; dropdown with Merge… (a
 dialog: method, delete the branch on GitHub) and Auto-merge), changes, reviews, comments (review-thread and conversation

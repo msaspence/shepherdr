@@ -6,7 +6,7 @@
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, TextView } from "gpui-base";
 import { checking, closeOverlay, hc, openOverlay, panes, props, spaces, theme } from "herdr";
-import { attachingFor, avatarPath, listRepos, load, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
+import { attachingFor, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
 
 const MOD = "github-pr";
 const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
@@ -165,8 +165,9 @@ function items(t, pr, s, ctx) {
   const counted = (name, color, n) => n ? [h_flex().gap(3).items_center().child(icon(name, color, 13)).when(n > 1, (el) => el.child(num(n, t.muted)))] : [];
   const p = `pr${pr.number}`;
   return [
-    { key: "repo", icon: icon("git-merge", t.muted), label: h_flex().gap(6).min_w(0)
-        .child(div().min_w(0).truncate().child(`${pr.owner}/${pr.repo}`)).child(div().flex_none().text_color(t.dim).child(`#${pr.number}`)),
+    // Its repo, only when some PR shown isn't from the space's repo (then for every PR: see showRepo).
+    ctx.showRepo && { key: "repo", icon: icon("book-marked", t.muted), label: `${pr.owner}/${pr.repo}` },
+    { key: "title", icon: div().flex_none().text_color(t.dim).child(`#${pr.number}`), label: pr.title,
       right: [ghButton(t, `${p}-gh`, pr.url)],
       click: (_e, cx) => { ctx.show(MOD); cx.notify(); },
       body: () => v_flex().gap(6).p(6)
@@ -191,7 +192,7 @@ function items(t, pr, s, ctx) {
       ? { key: "conflicts", icon: icon("git-conflict", c.red), label: "Conflicts", chevron: true,
           right: [num(pr.conflicts?.length ?? "?", c.red)], body: (v) => conflictsMenu(v, pr) }
       : { key: "conflicts", icon: icon("git-merge", t.muted), label: "No Conflicts" },
-  ];
+  ].filter(Boolean);
 }
 
 // Why GitHub won't merge it yet, each [icon, text], in the order they'd need fixing.
@@ -283,7 +284,7 @@ function conflictsMenu(v, pr) {
 // A row's head: icon, label, what's on the right, a chevron when it opens something.
 function rowHead(t, id, it, { active, open } = {}) {
   return h_flex().id(id).h(30).px(4).gap(8).items_center().flex_none().rounded(6)
-    .when(it.key !== "repo", (el) => el.ml(8)) // indented under the PR's own (repo) row
+    .when(it.key !== "repo" && it.key !== "title", (el) => el.ml(8)) // indented under the PR's own rows
     .when(Boolean(it.body || it.click), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
     .when(Boolean(active), (el) => el.bg(t.selected))
     .child(it.icon)
@@ -326,9 +327,9 @@ function tabRows(t, pr, ctx) {
   const s = summarize(pr);
   const { state } = ctx;
   const v = { t, inline: true, state, pages: {} };
-  // The repo row is the tab's heading here: nothing to open; its GitHub button, and one to remove the PR from
+  // The title row is the tab's heading here: nothing to open; its GitHub button, and one to remove the PR from
   // this agent (it stays removed, even if it's the agent's branch's).
-  const list = items(t, pr, s, ctx).map((it) => (it.key === "repo"
+  const list = items(t, pr, s, ctx).map((it) => (it.key === "title"
     ? { ...it, body: null, click: null, right: [...it.right, removeButton(t, pr, ctx)] } : it));
   const wide = ctx.width >= WIDE;
   const key = (it) => `pr${pr.number}-${it.key}`;
@@ -401,11 +402,7 @@ function actions(t, ctx) {
       .child(createButton(t, ctx))
       .child(smallButton(t, "gh-attach-open", "git-merge", "Attach Existing", (_e, cx) => {
         try {
-          // The space's repo is where its first terminal is (as Herdr names spaces), else the agent's, else its folder.
-          const space = spaces().find((sp) => sp.tabs?.some((tb) => tb.id === ctx.agent.tab));
-          const tabs = space?.tabs?.map((tb) => tb.id) ?? [];
-          const first = tabs.map((id) => panes().find((pn) => pn.tab === id && pn.terminal && pn.cwd)).find(Boolean);
-          const folders = [...new Set([first?.cwd, ctx.cwd, space?.folder].filter(Boolean))];
+          const folders = spaceFolders(ctx);
           openOverlay({ mod: MOD, kind: "dialog", width: 480, height: 520,
             props: { variant: "attach", terminal: ctx.agent.terminal, folders, shown: state.shown ?? [] } });
         } catch (e) {
@@ -435,6 +432,22 @@ const prCount = (ctx) => {
   return (e?.prs?.length ?? 0) + loadingRows(ctx.t, ctx, e?.prs).length;
 };
 
+// Where to look for the space's repo, in order: its first terminal's folder (as Herdr names spaces), the
+// agent's, then the space's own folder (which can be home).
+function spaceFolders(ctx) {
+  const space = spaces().find((sp) => sp.tabs?.some((tb) => tb.id === ctx.agent?.tab));
+  const tabs = space?.tabs?.map((tb) => tb.id) ?? [];
+  const first = tabs.map((id) => panes().find((pn) => pn.tab === id && pn.terminal && pn.cwd)).find(Boolean);
+  return [...new Set([first?.cwd, ctx.cwd, space?.folder].filter(Boolean))];
+}
+
+// Whether PRs show their repo: when any isn't from the space's repo (not while that's still being looked up).
+function showRepo(ctx, prs) {
+  if (!prs?.length) return false;
+  const repo = repoFor(spaceFolders(ctx), ctx.cx);
+  return repo !== undefined && prs.some((pr) => `${pr.owner}/${pr.repo}`.toLowerCase() !== repo?.toLowerCase());
+}
+
 const register = {
   title: (ctx) => (prCount(ctx) > 1 ? "Pull Requests" : "Pull Request"),
   header: (ctx) => {
@@ -446,6 +459,7 @@ const register = {
     const e = load(ctx);
     const loading = loadingRows(t, ctx, e?.prs);
     if (!ctx.agent?.terminal && !e?.prs?.length) return null;
+    ctx.showRepo = showRepo(ctx, e?.prs);
     return v_flex()
       .when(Boolean(e?.prs?.length), (el) => el.child(v_flex().gap(8).children(e.prs.map((pr) => summaryRows(t, pr, ctx)))))
       .children(loading)
@@ -458,6 +472,7 @@ const register = {
     if (!ctx.cwd) return msg("No folder");
     if (!e) return msg("Loading…");
     const loading = loadingRows(t, ctx, e.prs);
+    ctx.showRepo = showRepo(ctx, e.prs);
     const body = e.error && !e.prs ? msg(e.error, t.blocked)
       : !e.prs?.length && !loading.length ? msg(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request")
       : v_flex().gap(12).children((e.prs ?? []).map((pr) => tabRows(t, pr, ctx))).children(loading);

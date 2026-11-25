@@ -97,6 +97,20 @@ async function gh(args, cwd) {
 export async function repoOf(folder) {
   try { return (await gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], folder)).trim() || null; } catch { return null; }
 }
+// The first repo among folders ("owner/name"), from a cache filled in the background: undefined while still
+// looking, null when none is a repo. Redraws the panel (cx) as answers arrive.
+const repoCache = new Map(); // folder -> "owner/name" | null, or undefined while looking
+export function repoFor(folders, cx) {
+  for (const f of folders) {
+    if (!repoCache.has(f)) {
+      repoCache.set(f, undefined);
+      if (!checking()) cx.spawn(async (cx) => { repoCache.set(f, await repoOf(f)); cx.notify(); });
+    }
+    const r = repoCache.get(f);
+    if (r !== null) return r; // a repo, or undefined: still looking at this one
+  }
+  return null;
+}
 export async function listRepos() {
   return JSON.parse(await gh(["api", "user/repos?per_page=100&sort=pushed", "--jq", "[.[].full_name]"]));
 }
