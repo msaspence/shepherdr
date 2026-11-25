@@ -413,13 +413,20 @@ function actions(t, ctx) {
     .when(Boolean(state.linkError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.linkError)));
 }
 
+const spinner = (t) => svg(I("spinner")).size(14).flex_none().text_color(t.muted).spin(900)
+  .loop("opacity", { from: 0.97, to: 1, period: 1000 }); // the loop keeps the spin smooth (see running)
+
+// Before the agent's PRs first arrive.
+const loadingAll = (t) => h_flex().id("ghpr-loading").h(30).px(4).gap(8).items_center().flex_none()
+  .child(spinner(t)).child(div().flex_1().text_size(12.5).text_color(t.dim).child("Loading pull requests…"));
+
 // A PR attached a moment ago, until its details arrive: its repo and number, a spinner and "Loading…".
 function loadingRows(t, ctx, prs) {
   const have = new Set((prs ?? []).map((pr) => pr.url));
   return attachingFor(ctx.agent?.terminal).filter((url) => !have.has(url)).map((url, i) => {
     const [, repo, number] = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/) ?? [];
     return h_flex().id(`ghpr-loading-${i}`).h(30).px(4).gap(8).items_center().flex_none()
-      .child(svg(I("spinner")).size(14).flex_none().text_color(t.muted).spin(900).loop("opacity", { from: 0.97, to: 1, period: 1000 }))
+      .child(spinner(t))
       .child(h_flex().flex_1().min_w(0).gap(6).child(div().min_w(0).truncate().child(repo ?? url))
         .child(div().flex_none().text_color(t.dim).child(number ? `#${number}` : "")))
       .child(div().flex_none().text_size(12).text_color(t.dim).child("Loading…"));
@@ -452,11 +459,12 @@ const register = {
   title: (ctx) => (prCount(ctx) > 1 ? "Pull Requests" : "Pull Request"),
   header: (ctx) => {
     const n = prCount(ctx);
-    return n > 1 ? "Pull Requests" : n || ctx.agent?.terminal ? "Pull Request" : null;
+    return n > 1 ? "Pull Requests" : n || ctx.agent?.terminal || (ctx.cwd && !load(ctx)) ? "Pull Request" : null;
   },
   summary: (ctx) => {
     const { t } = ctx;
     const e = load(ctx);
+    if (!e) return ctx.cwd ? loadingAll(t) : null;
     const loading = loadingRows(t, ctx, e?.prs);
     if (!ctx.agent?.terminal && !e?.prs?.length) return null;
     ctx.showRepo = showRepo(ctx, e?.prs);
@@ -470,7 +478,7 @@ const register = {
     const e = load(ctx);
     const msg = (text, color = t.muted) => div().px(4).py(6).text_size(12.5).text_color(color).child(text);
     if (!ctx.cwd) return msg("No folder");
-    if (!e) return msg("Loading…");
+    if (!e) return loadingAll(t);
     const loading = loadingRows(t, ctx, e.prs);
     ctx.showRepo = showRepo(ctx, e.prs);
     const body = e.error && !e.prs ? msg(e.error, t.blocked)
