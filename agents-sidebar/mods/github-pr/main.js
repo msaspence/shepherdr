@@ -369,9 +369,9 @@ function tabView(t, prs, ctx, loading) {
   // The title row is the tab's heading here: nothing to open but its GitHub button. Unlink goes under the PR's rows.
   const groups = prs.map((pr) => ({ pr, list: items(t, pr, summarize(pr), ctx).map((it) => (it.key === "title"
     ? { ...it, body: null, click: null } : it)) }));
-  const unlink = (pr) => h_flex().pt(4).justify_end().child(removeButton(t, pr, ctx));
+  const unlink = (pr) => h_flex().mt(-4).justify_end().child(removeButton(t, pr, ctx)); // snug under the last 30px row
   if (ctx.width < WIDE) {
-    return v_flex().gap(12).children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) => {
+    return v_flex().gap(24).children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) => {
       const k = key(pr, it), open = Boolean(state.exp?.[k]);
       if (it.key === "status") return menuRow(t, `tab-${k}`, it, state); // a dropdown, as in the Summary
       return v_flex()
@@ -384,7 +384,7 @@ function tabView(t, prs, ctx, loading) {
   const sel = all.find(({ pr, it }) => it.body && key(pr, it) === state.sel) ?? all.find(({ it }) => it.key === "status");
   const label = (it) => (it.key === "status" ? "Status" : typeof it.label === "string" ? it.label : "Pull request");
   return h_flex().items_stretch().gap(10) // both columns full height, content at the top
-    .child(v_flex().w(260).flex_none().gap(12)
+    .child(v_flex().w(260).flex_none().gap(24)
       .children(groups.map(({ pr, list }) => v_flex().gap(1).children(list.map((it) =>
         rowHead(t, `tab-${key(pr, it)}`, { ...it, chevron: Boolean(it.body) }, { active: it === sel?.it })
           .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { state.sel = key(pr, it); cx.notify(); }))))
@@ -440,7 +440,7 @@ function createButton(t, ctx) {
 function actions(t, ctx) {
   const { state } = ctx;
   state.shown = (load(ctx)?.prs ?? []).map((pr) => pr.url);
-  return v_flex().gap(4).px(4).pt(10)
+  return v_flex().gap(4).px(4).pt(20)
     .child(h_flex().gap(6).items_center()
       .child(createButton(t, ctx))
       .child(smallButton(t, "gh-attach-open", "link", "Attach Existing", (_e, cx) => {
@@ -512,7 +512,7 @@ const register = {
     if (!ctx.agent?.terminal && !e?.prs?.length) return null;
     ctx.showRepo = showRepo(ctx, e?.prs);
     return v_flex()
-      .when(Boolean(e?.prs?.length), (el) => el.child(v_flex().gap(8).children(e.prs.map((pr) => summaryRows(t, pr, ctx)))))
+      .when(Boolean(e?.prs?.length), (el) => el.child(v_flex().gap(16).children(e.prs.map((pr) => summaryRows(t, pr, ctx)))))
       .children(loading)
       .when(Boolean(ctx.agent?.terminal) && !e?.prs?.length && !loading.length, (el) => el.child(actions(t, ctx))); // the PR tab always has them
   },
