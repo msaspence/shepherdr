@@ -41,14 +41,16 @@ function ring(t, segs, size = 14) {
   const total = segs.reduce((n, [v]) => n + v, 0);
   const box = div().relative().size(size).flex_none();
   if (!total) return box.child(icon("ring", t.dim, size));
-  // Lucide's geometry (r 10, stroke 2 on a 24 grid), so it lines up with the circle icons in the other rows.
-  const w = size * 2 / 24, r = size * 10 / 24, c = size / 2;
+  // Lucide's radius (10 on a 24 grid), so it lines up with the circle icons in the other rows; a 2px stroke.
+  const w = 2, r = size * 10 / 24, c = size / 2;
   const shown = segs.filter(([v]) => v);
   const gap = shown.length > 1 ? 0.5 : 0; // radians between arcs
+  // Every arc gets at least `min` of visible stroke, so 1 running check of 20 still shows; the rest is shared by count.
+  const min = shown.length > 1 ? gap + 0.4 : 0, spare = 2 * Math.PI - min * shown.length;
   const at = (a) => [c + r * Math.sin(a), c - r * Math.cos(a)];
   let a = 0;
   return box.children(shown.map(([v, color]) => {
-    const span = (v / total) * 2 * Math.PI, from = a + gap / 2, to = a + span - gap / 2;
+    const span = min + (v / total) * spare, from = a + gap / 2, to = a + span - gap / 2;
     a += span;
     // In pieces of at most a quarter turn: a full circle (one arc) still draws, and the renderer finds each
     // piece's centre from its ends, which drifts visibly when they're nearly opposite (a half-turn piece).
