@@ -221,12 +221,18 @@ function statusMenu(v, pr, s) {
     .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).text_color(t.accent_foreground).child(icon("check", t.accent_foreground, 11)));
   const busy = state.autoBusy === pr.url;
   return v_flex().gap(2)
-    .child(entry(t, `merge-${pr.number}`, s.ready ? (_e, cx) => {
-        state.open = null;
-        openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
-        cx.notify();
-      } : null).when(!s.ready, (el) => el.text_color(t.dim))
-      .child(icon("git-merge", s.ready ? C(t).green : t.dim)).child(div().flex_1().child(s.ready ? "Merge…" : "Merging is blocked")))
+    // Ready: an outline button that opens the merge dialog. Blocked: a dim line, with the reasons under it.
+    .child(s.ready
+      ? h_flex().px(2).py(2).child(h_flex().id(`merge-${pr.number}`).h(28).px(10).gap(8).items_center().rounded(6)
+        .border_1().border_color(t.input).cursor_pointer().text_color(t.foreground).hover((st) => st.bg(t.hover))
+        .on_click((_e, cx) => {
+          state.open = null;
+          openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
+          cx.notify();
+        })
+        .child(icon("git-merge", t.foreground)).child("Merge…"))
+      : entry(t, `merge-${pr.number}`, null).text_color(t.dim)
+        .child(icon("git-merge", t.dim)).child(div().flex_1().child("Merging is blocked")))
     .when(!s.ready, (el) => el.child(v_flex().pl(28).pr(6).pb(4).gap(2).children(blockers(t, pr, s).map(([mark, text]) =>
       h_flex().min_h(20).gap(6).items_center().text_size(12).text_color(t.muted).child(mark).child(div().flex_1().min_w(0).child(text))))))
     .child(entry(t, `auto-${pr.number}`, pr.canAuto && !busy ? (_e, cx) => {
