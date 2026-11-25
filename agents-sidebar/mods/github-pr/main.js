@@ -278,7 +278,7 @@ function summaryRows(t, pr, ctx) {
     return Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
       .on_open_change((open, cx) => { state.open = open ? id : null; state.drill = null; cx.notify(); })
       .trigger(rowHead(t, id, it))
-      .content(div().pt(2).child(menu(t, it, state))); // 2px clear of the trigger's background
+      .content(div().pt(4).child(menu(t, it, state))); // 4px clear of the trigger's background
   }));
 }
 
