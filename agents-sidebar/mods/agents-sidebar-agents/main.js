@@ -10,6 +10,7 @@ import { div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { appHome, checking, closeOverlay, focused, updates, settings, knownAgents, layout, nextCommand, openOverlay, panes, props, run, setShared, shared, spaces, terminals, theme } from "herdr";
 import { readdir, readFile } from "fs/promises";
+import { archiveDialog, initArchive } from "./archive.js";
 import { dragCursor, drawerFade, drawerHover, hasMod, loadMods, menuMod, sidebarIdle } from "./drawer.js";
 
 let shown = null; // the chat dialog this list opened last
@@ -133,11 +134,12 @@ export function openChatPeek(addr) {
   return true;
 }
 
-const popup = () => props()?.harness;
+const popup = () => props()?.harness || props()?.archive;
 
 export default class SideAgents extends Agents {
   init(p, cx) {
     super.init(p, cx);
+    if (props()?.archive) initArchive(this, cx);
     if (popup()) return;
     // props(), not init's argument: a layout block's init doesn't get its props.
     const inDrawer = Boolean(props()?.peek);
@@ -365,6 +367,7 @@ export default class SideAgents extends Agents {
   render(cx) {
     const t = theme();
     if (props()?.harness) return this.harnessMenu(t);
+    if (props()?.archive) return archiveDialog(this, t);
     if (!props()?.peek) focusNewChat();
     const el = super.render(cx);
     // The rail draws the full panel under drawer.js's veil.

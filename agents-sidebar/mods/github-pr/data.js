@@ -299,3 +299,14 @@ export async function setAutoMerge(pr, on) {
   await gh(["pr", "merge", pr.url, ...(on ? ["--auto", `--${mergeMethod(pr)}`] : ["--disable-auto"])]);
   invalidate();
 }
+
+// For the agents list's archive dialog: an agent's open PRs (the panel's cached answer when it has one), and closing one.
+export async function agentPrs(cwd, branch, terminal) {
+  const e = entries.get(`${terminal}\n${cwd}\n${branch}`);
+  const prs = e?.prs ?? await fetchPrs(cwd, branch, terminal);
+  return prs.filter((pr) => pr.state === "OPEN");
+}
+export async function closePr(pr) {
+  await gh(["pr", "close", pr.url]);
+  invalidate();
+}

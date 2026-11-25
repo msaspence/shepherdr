@@ -6,7 +6,7 @@
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, Popup, TextView } from "gpui-base";
 import { checking, closeOverlay, hc, openOverlay, panes, props, setShared, shared, spaces, theme } from "herdr";
-import { METHOD_KEY, attachingFor, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
+import { METHOD_KEY, agentPrs, attachingFor, closePr, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
 
 const MOD = "github-pr";
 const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
@@ -549,6 +549,7 @@ function showRepo(ctx, prs) {
 }
 
 const register = {
+  agentPrs, closePr, // the archive dialog's (agents-sidebar-agents/archive.js)
   title: (ctx) => (prCount(ctx) > 1 ? "Pull Requests" : "Pull Request"),
   header: (ctx) => {
     const n = prCount(ctx);
