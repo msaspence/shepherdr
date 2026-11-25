@@ -5,7 +5,7 @@
 // panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, TextView } from "gpui-base";
-import { checking, closeOverlay, hc, openOverlay, props, spaces, theme } from "herdr";
+import { checking, closeOverlay, hc, openOverlay, panes, props, spaces, theme } from "herdr";
 import { attachingFor, avatarPath, listRepos, load, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
 
 const MOD = "github-pr";
@@ -401,9 +401,13 @@ function actions(t, ctx) {
       .child(createButton(t, ctx))
       .child(smallButton(t, "gh-attach-open", "git-merge", "Attach Existing", (_e, cx) => {
         try {
+          // The space's repo is where its first terminal is (as Herdr names spaces), else the agent's, else its folder.
           const space = spaces().find((sp) => sp.tabs?.some((tb) => tb.id === ctx.agent.tab));
+          const tabs = space?.tabs?.map((tb) => tb.id) ?? [];
+          const first = tabs.map((id) => panes().find((pn) => pn.tab === id && pn.terminal && pn.cwd)).find(Boolean);
+          const folders = [...new Set([first?.cwd, ctx.cwd, space?.folder].filter(Boolean))];
           openOverlay({ mod: MOD, kind: "dialog", width: 480, height: 520,
-            props: { variant: "attach", terminal: ctx.agent.terminal, folder: space?.folder || ctx.cwd, shown: state.shown ?? [] } });
+            props: { variant: "attach", terminal: ctx.agent.terminal, folders, shown: state.shown ?? [] } });
         } catch (e) {
           state.linkError = `Couldn't open the dialog: ${e?.message ?? e}`;
         }
@@ -493,7 +497,8 @@ export default class GithubPr extends View {
     this.prFilter.on("change", (_e, cx) => cx.notify());
     if (checking()) return;
     cx.spawn(async (cx) => {
-      const repo = await repoOf(p.folder);
+      let repo = null;
+      for (const folder of p.folders ?? []) if (!repo) repo = await repoOf(folder);
       if (!this.repo) this.pickRepo(repo, cx);
       try { this.repos = await listRepos(); } catch (e) { this.repos = []; this.error ??= String(e?.message ?? e); }
       if (repo && !this.repos.includes(repo)) this.repos.unshift(repo);
