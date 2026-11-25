@@ -155,8 +155,25 @@ but they share one JS runtime. A tab mod offers itself in its `mod.json` with
 };
 ```
 
-`ctx` is `{ t, agent, cwd, branch, line }`: the theme, the agent's pane (`panes()` entry), its folder and
-branch, and the Summary's own row builder. Handlers in the returned elements get the panel's `cx`.
+`header` (optional) is a label over the mod's Summary lines: a string, or `(ctx) => string | null`.
+`ctx` is `{ t, cx, agent, cwd, branch, width, state, show, line }`: the theme, the panel's `cx` (spawn fetches
+on it; `cx.notify()` redraws the panel), the agent's pane (`panes()` entry), its folder and branch, the pane's
+width, an object the panel keeps for this mod (UI state such as an open dropdown), `show(tabId)` to switch the
+panel's tab, and the Summary's own row builder. Handlers in the returned elements get the panel's `cx`.
+The panel scans `mods/*/mod.json` for tab mods when it opens, so a newly installed one shows without the dialog.
+
+**github-pr** (`mods/github-pr`, tab "PR"): the agent's branch's open pull request, from `gh pr list --head`
+and one GraphQL query per PR (`data.js`, cached per folder and branch, refetched every 30s while shown).
+Summary lines under "Pull Request": repo + `#n` (click: the PR tab; GitHub icon: the browser), status (an
+indicator, first that applies: red ring for conflicts, approved/changes/pending arcs when changes are requested,
+passed/running/failed/not-reporting arcs when checks fail, green check when ready; dropdown with Merge… (a
+dialog: method, delete the branch on GitHub) and Auto-merge), changes, reviews, comments (review-thread comments
+grouped by author; one opens in a popup), checks (required ones not reporting come from branch protection) and
+conflicts (worked out locally: `git fetch origin <base>` then `git merge-tree --write-tree` against HEAD, only
+when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list replaces the menu with a back row.
+In the PR tab the same rows expand in place below 560px, and from 560px are a list beside the selected row's
+content; nested lists and comments then expand in place. Needs `gh` signed in; images can't be clipped round,
+so avatars are square.
 
 **Files and Changes:** Herdr's shipped `files` and `changes` mods, nested in the panel with
 `cx.new(ViewClass, {})` the first time their tab is shown (each panel keeps its own copy, which follows the

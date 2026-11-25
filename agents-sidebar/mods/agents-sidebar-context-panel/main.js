@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, Popover } from "gpui-base";
 import { checking, exec, focused, home, openOverlay, panes, props, run, shared, theme } from "herdr";
-import { HERDR_TABS, MOD, config, enabledMods, herdrView, loadTabMods, registry } from "./tabs.js";
+import { HERDR_TABS, MOD, config, enabledMods, herdrView, loadTabMods, registry, scanTabMods } from "./tabs.js";
 import { initSettings, settingsView } from "./settings.js";
 
 const WIDTH = 340; // the pane's width when it opens
@@ -55,7 +55,7 @@ export default class Panel extends View {
     this.stat = null; // { cwd, add, del }
     this.views = {}; // Herdr's panels, nested (cx.new) the first time their tab is shown: id -> Entity | { error }
     if (checking()) return;
-    cx.spawn(async (cx) => loadTabMods(cx, enabledMods()));
+    cx.spawn(async (cx) => { await scanTabMods(); await loadTabMods(cx, enabledMods()); });
     this.refresh(cx);
     cx.timer.every(POLL, (cx) => this.refresh(cx));
   }
@@ -103,7 +103,7 @@ export default class Panel extends View {
       .child(this.tabs(t))
       .child(HERDR_TABS.has(this.active)
         ? v_flex().id("panel-body").flex_1().min_h(0).p(4).child(this.herdrTab(t, this.active, cx))
-        : v_flex().id("panel-body").flex_1().min_h(0).p(10).gap(2).overflow_y_scrollbar().child(this.content(t))));
+        : v_flex().id("panel-body").flex_1().min_h(0).p(10).gap(2).overflow_y_scrollbar().child(this.content(t, cx))));
   }
 
   // The active tab, or Summary once it's been turned off or its mod is gone.
@@ -129,10 +129,10 @@ export default class Panel extends View {
     return v && !v.loading ? v : div();
   }
 
-  content(t) {
-    if (this.active === "summary") return this.summary(t);
+  content(t, cx) {
+    if (this.active === "summary") return this.summary(t, cx);
     const tab = tabs().find((x) => x.id === this.active);
-    return tab ? this.guard(tab.id, () => tab.render(this.ctx(t))) : this.summary(t);
+    return tab ? this.guard(tab.id, () => tab.render(this.ctx(t, tab.id, cx))) : this.summary(t, cx);
   }
 
   // A registered mod's failure shows in its own place, not as the whole panel failing.
@@ -151,10 +151,14 @@ export default class Panel extends View {
       .when(Boolean(right), (el) => el.child(right));
   }
 
-  ctx(t) {
+  // What a registered mod's render/summary/header gets. state is this panel's own object for that mod (kept
+  // while the panel lives), width the pane's, show(id) switches the panel to a tab (call cx.notify after).
+  ctx(t, id, cx) {
     const agent = this.agent();
-    return { t, agent, cwd: agent?.cwd ?? null, branch: agent?.branch ?? null,
-      line: (id, icon, text, right) => this.line(t, id, icon, text, right) };
+    this.modState ??= {};
+    return { t, cx, agent, cwd: agent?.cwd ?? null, branch: agent?.branch ?? null, width: this.width,
+      state: (this.modState[id] ??= {}), show: (tab) => { this.active = tab; },
+      line: (lid, icon, text, right) => this.line(t, lid, icon, text, right) };
   }
 
   tabs(t) {
@@ -184,7 +188,7 @@ export default class Panel extends View {
       .on_click(select(x.id)).child(x.title))));
   }
 
-  summary(t) {
+  summary(t, cx) {
     const agent = this.agent();
     const cwd = agent?.cwd;
     const stat = this.stat?.cwd === cwd ? this.stat : null;
@@ -196,7 +200,17 @@ export default class Panel extends View {
         stat ? h_flex().gap(6).flex_none().text_size(12)
           .child(div().text_color(stat.add ? t.ansi2 : t.dim).child(`+${stat.add}`))
           .child(div().text_color(stat.del ? t.ansi1 : t.dim).child(`-${stat.del}`)) : null))
-      .children(extra.map(([id, r]) => this.guard(id, () => r.summary(this.ctx(t)))));
+      .children(extra.map(([id, r]) => this.guard(id, () => {
+        const ctx = this.ctx(t, id, cx);
+        const lines = r.summary(ctx);
+        const header = typeof r.header === "function" ? r.header(ctx) : r.header;
+        return lines && header ? v_flex().child(this.header(t, id, header)).child(lines) : lines;
+      })));
+  }
+
+  // A registered mod's optional label over its Summary lines.
+  header(t, id, text) {
+    return div().id(`summary-header-${id}`).px(4).pt(12).pb(2).text_size(11.5).font_semibold().text_color(t.dim).child(text);
   }
 
   // opens-in's button-icon: its own dropdown ("menu" variant) for this folder.

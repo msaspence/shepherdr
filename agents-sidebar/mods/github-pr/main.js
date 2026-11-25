@@ -1,0 +1,402 @@
+// github-pr: the agent's open pull request in the context panel (agents-sidebar-context-panel). Summary lines under
+// a "Pull Request" header, each opening a dropdown, and a PR tab with the same rows: collapsible when the pane is
+// narrow, a list and a detail pane when it's wide (nested menus then become nested collapsibles).
+// Copies: the merge dialog (props.variant "merge"), a review comment's popover (props.variant "comment"), and the
+// panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
+import { View, div, svg, PathBuilder } from "gpui-kit";
+import { h_flex, v_flex, Avatar, AvatarFallback, AvatarImage, Popover, TextView } from "gpui-base";
+import { closeOverlay, openOverlay, props, theme } from "herdr";
+import { avatarPath, load, merge, mergeMethod, setAutoMerge, summarize } from "./data.js";
+
+const MOD = "github-pr";
+const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
+const I = (name) => `mods/${MOD}/icons/${name}.svg`;
+const METHODS = { squash: "Squash and merge", merge: "Create a merge commit", rebase: "Rebase and merge" };
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const lineRange = (s, e) => (s && e && s !== e ? `L${s}–${e}` : e || s ? `L${e ?? s}` : "");
+const stop = (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation());
+
+// Colors: passed/approved, running/pending, failed/changes, not reporting.
+const C = (t) => ({ green: t.ansi2, gold: t.ansi3, red: t.ansi1, grey: t.dim });
+
+const icon = (name, color, size = 14) => svg(I(name)).size(size).flex_none().text_color(color);
+
+function avatar(t, url, login, size = 18) {
+  const file = avatarPath(url);
+  return Avatar.new().size(size).flex_none().rounded_full().overflow_hidden().bg(t.raised)
+    .when(Boolean(file), (el) => el.image(AvatarImage.new(file).size_full()))
+    .fallback(AvatarFallback.new().size_full().flex().items_center().justify_center().text_size(size * 0.55).text_color(t.muted)
+      .child((login ?? "?")[0].toUpperCase()));
+}
+
+// A ring split into arcs, one per [count, color], clockwise from the top; an empty one is a grey ring.
+function ring(t, segs, size = 14) {
+  const total = segs.reduce((n, [v]) => n + v, 0);
+  const box = div().relative().size(size).flex_none();
+  if (!total) return box.child(icon("ring", t.dim, size));
+  const w = 2, r = (size - w) / 2, c = size / 2;
+  const shown = segs.filter(([v]) => v);
+  const gap = shown.length > 1 ? 0.5 : 0; // radians between arcs
+  const at = (a) => [c + r * Math.sin(a), c - r * Math.cos(a)];
+  let a = 0;
+  return box.children(shown.map(([v, color]) => {
+    const span = (v / total) * 2 * Math.PI, from = a + gap / 2, to = a + span - gap / 2;
+    a += span;
+    // In pieces of at most half a turn, so a full circle (one arc) still draws.
+    let b = PathBuilder.stroke(w).move_to(...at(from));
+    for (let x = from; x < to - 1e-6;) { x = Math.min(to, x + Math.PI * 0.999); b = b.arc_to(r, r, 0, false, true, ...at(x)); }
+    return div().absolute().inset_0().child(window.paint_path(b.build(), color));
+  }));
+}
+
+// The status row's indicator, first that applies: conflicts, changes requested, failing checks, ready.
+function indicator(t, pr, s) {
+  const c = C(t);
+  if (s.conflicting) return ring(t, [[1, c.red]]);
+  if (s.changesRequested) return ring(t, [[s.reviews.approved, c.green], [s.reviews.changes, c.red], [s.reviews.pending, c.grey]]);
+  if (s.failing) return ring(t, [[s.checks.passed, c.green], [s.checks.running, c.gold], [s.checks.failed, c.red], [s.checks.missing, c.grey]]);
+  if (s.ready) return icon("circle-check", c.green);
+  if (s.checks.running || s.checks.missing) return ring(t, [[s.checks.passed, c.green], [s.checks.running, c.gold], [s.checks.missing, c.grey]]);
+  return ring(t, [[s.reviews.approved, c.green], [s.reviews.pending, c.grey]]);
+}
+
+function checksIcon(t, pr, s) {
+  const c = C(t);
+  if (s.checks.failedRequired) return icon("hexagon-alert", c.red);
+  if (s.checks.failed) return icon("triangle-alert", c.red);
+  if (s.checks.running) return icon("dot", c.gold);
+  if (s.checks.missing) return icon("hexagon-alert", c.grey);
+  return icon("circle-check", pr.checks.length ? c.green : t.dim);
+}
+
+const reviewIcon = (t, state) => {
+  const c = C(t);
+  return state === "APPROVED" ? icon("check", c.green) : state === "CHANGES_REQUESTED" ? icon("file-diff", c.red)
+    : state === "PENDING" ? icon("dot", c.gold) : state === "DISMISSED" ? icon("circle-x", c.grey) : icon("message", t.dim);
+};
+const checkIcon = (t, state) => {
+  const c = C(t);
+  return state === "passed" ? icon("circle-check", c.green) : state === "running" ? icon("dot", c.gold)
+    : state === "failed" ? icon("circle-x", c.red) : icon("hexagon-alert", c.grey);
+};
+
+// A GitHub button: opens url in the browser, without the click reaching the row under it.
+const ghButton = (t, id, url) => stop(div().id(id).size(22).flex().flex_none().items_center().justify_center().rounded(5)
+  .cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Open on GitHub")
+  .on_click((_e, cx) => { cx.stop_propagation(); cx.open_url(url); })
+  .child(svg(I("github")).size(14)));
+
+// A menu/list row.
+const entry = (t, id, onClick) => h_flex().id(id).min_h(28).px(6).gap(8).items_center().rounded(6)
+  .when(Boolean(onClick), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick));
+const note = (t, text) => div().px(6).py(4).text_size(12).text_color(t.dim).child(text);
+
+// Rows with nested content are shown two ways. In a dropdown ("menu"), a nested item replaces the list (with a
+// back row) and a comment opens its own popover. In the PR tab ("inline"), both expand in place.
+// v = { t, inline, state, pages } — pages collects the menu's nested pages while the list is described.
+function nested(v, key, title, headFn, bodyFn) {
+  const { t, state } = v;
+  if (!v.inline) {
+    v.pages[key] = { title, body: bodyFn };
+    return headFn(entry(t, `nav-${key}`, (_e, cx) => { state.drill = key; cx.notify(); }))
+      .child(icon("chevron-right", t.dim, 12));
+  }
+  const open = Boolean(state.exp?.[key]);
+  return v_flex()
+    .child(headFn(entry(t, `exp-${key}`, (_e, cx) => { (state.exp ??= {})[key] = !open; cx.notify(); }))
+      .child(icon(open ? "chevron-down" : "chevron-right", t.dim, 12)))
+    .when(open, (el) => el.child(div().pl(14).child(bodyFn())));
+}
+
+function commentBody(t, c, id) {
+  return v_flex().gap(6).p(6)
+    .child(h_flex().gap(8).items_center()
+      .child(avatar(t, c.avatar, c.login)).child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
+      .child(ghButton(t, `gh-${id}`, c.url)))
+    .child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`))
+    .child(TextView.markdown(`md-${id}`, c.body || "_No text_").text_size(12.5));
+}
+
+// Review comments, grouped by author: each one's file and line, opening the comment.
+function commentList(v, comments, scope) {
+  const { t } = v;
+  if (!comments.length) return note(t, "No review comments");
+  const groups = new Map();
+  for (const c of comments) groups.set(c.login, [...(groups.get(c.login) ?? []), c]);
+  return v_flex().gap(2).children([...groups].map(([login, list]) => v_flex()
+    .child(h_flex().h(26).px(6).gap(8).items_center().child(avatar(t, list[0].avatar, login)).child(div().font_semibold().child(login)))
+    .children(list.map((c) => {
+      const id = `${scope}-${c.id}`;
+      const head = (el) => el.pl(32).child(div().flex_1().min_w(0).truncate().text_size(12)
+        .child(h_flex().gap(6).child(div().min_w(0).truncate().child(c.path.split("/").pop()))
+          .child(div().flex_none().text_color(t.dim).child(lineRange(c.start, c.line)))));
+      if (v.inline) return nested(v, id, c.path, head, () => commentBody(t, c, id));
+      return head(entry(t, `c-${id}`, (_e, cx) => {
+        v.state.open = null; // the dropdown draws above overlays, so it makes way for the comment
+        openOverlay({ mod: MOD, kind: "popup", at: "pointer", width: 380, height: Math.min(440, 120 + Math.ceil(c.body.length / 48) * 20),
+          props: { variant: "comment", comment: c } });
+        cx.notify();
+      })).child(icon("chevron-right", t.dim, 12));
+    }))));
+}
+
+// The rows, each { key, icon, label, right, chevron, body?(v), click? }.
+function items(t, pr, s, ctx) {
+  const c = C(t);
+  const num = (n, color) => div().text_color(color).child(String(n));
+  const counted = (name, color, n) => n ? [h_flex().gap(3).items_center().child(icon(name, color, 13)).when(n > 1, (el) => el.child(num(n, t.muted)))] : [];
+  const p = `pr${pr.number}`;
+  return [
+    { key: "repo", icon: icon("git-merge", t.muted), label: h_flex().gap(6).min_w(0)
+        .child(div().min_w(0).truncate().child(`${pr.owner}/${pr.repo}`)).child(div().flex_none().text_color(t.dim).child(`#${pr.number}`)),
+      right: [ghButton(t, `${p}-gh`, pr.url)],
+      click: (_e, cx) => { ctx.show(MOD); cx.notify(); },
+      body: () => v_flex().gap(6).p(6)
+        .child(div().font_semibold().child(pr.title))
+        .child(h_flex().gap(6).text_size(12).text_color(t.dim).child(`${pr.head} → ${pr.base}`).when(pr.draft, (el) => el.child(div().text_color(c.gold).child("Draft")))) },
+    { key: "status", icon: indicator(t, pr, s), label: s.text, right: [], chevron: true,
+      body: (v) => statusMenu(v, pr, s) },
+    { key: "changes", icon: icon("file-diff", t.muted), label: "Changes",
+      right: [h_flex().gap(3).items_center().child(icon("file", t.dim, 13)).child(num(pr.files, t.muted)),
+        num(`+${pr.additions}`, pr.additions ? c.green : c.grey), num(`-${pr.deletions}`, pr.deletions ? c.red : c.grey)] },
+    { key: "reviews", icon: icon("badge-check", t.muted), label: "Reviews", chevron: true,
+      right: [...counted("file-diff", c.red, s.reviews.changes), ...counted("check", c.green, s.reviews.approved), ...counted("dot", c.gold, s.reviews.pending)],
+      body: (v) => reviewsMenu(v, pr) },
+    { key: "comments", icon: icon("message", t.muted), label: "Comments", chevron: true,
+      right: [num(pr.comments.length, t.muted)], body: (v) => commentList(v, pr.comments, `${p}-all`) },
+    { key: "checks", icon: checksIcon(t, pr, s), label: "Checks", chevron: true,
+      right: [[s.checks.passed, c.green], [s.checks.running, c.gold], [s.checks.failed, c.red], [s.checks.missing, c.grey]]
+        .filter(([n]) => n).map(([n, color]) => num(n, color)),
+      body: (v) => checksMenu(v, pr) },
+    { key: "conflicts", icon: s.conflicting ? icon("git-conflict", c.red) : icon("git-merge", t.muted), label: "Conflicts", chevron: true,
+      right: [num(s.conflicting ? (pr.conflicts?.length ?? "?") : 0, s.conflicting ? c.red : t.muted)],
+      body: (v) => conflictsMenu(v, pr, s) },
+  ];
+}
+
+function statusMenu(v, pr, s) {
+  const { t, state } = v;
+  const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
+    .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).text_color(t.accent_foreground).child(icon("check", t.accent_foreground, 11)));
+  const busy = state.autoBusy === pr.url;
+  return v_flex().gap(2)
+    .child(entry(t, `merge-${pr.number}`, s.ready ? (_e, cx) => {
+        state.open = null;
+        openOverlay({ mod: MOD, kind: "dialog", width: 380, height: 300, props: { variant: "merge", pr } });
+        cx.notify();
+      } : null).when(!s.ready, (el) => el.text_color(t.dim))
+      .child(icon("git-merge", s.ready ? C(t).green : t.dim)).child(div().flex_1().child("Merge…")))
+    .child(entry(t, `auto-${pr.number}`, pr.canAuto && !busy ? (_e, cx) => {
+        state.autoBusy = pr.url;
+        state.autoError = null;
+        cx.spawn(async (cx) => {
+          try { await setAutoMerge(pr, !pr.autoMerge); } catch (e) { state.autoError = String(e?.message ?? e); }
+          state.autoBusy = null;
+          cx.notify();
+        });
+        cx.notify();
+      } : null).when(!pr.canAuto || busy, (el) => el.text_color(t.dim))
+      .child(box(pr.autoMerge)).child(div().flex_1().child(busy ? "Auto-merge…" : "Auto-merge")))
+    .when(Boolean(state.autoError), (el) => el.child(note(t, state.autoError).text_color(t.blocked)));
+}
+
+function reviewsMenu(v, pr) {
+  const { t } = v;
+  if (!pr.reviews.length) return note(t, "No reviews yet");
+  return v_flex().gap(4).children(pr.reviews.map((r) => {
+    const id = `pr${pr.number}-rv-${r.login}`;
+    const head = (el) => el.child(icon("message", t.dim)).child(div().flex_1().text_size(12).text_color(t.muted).child(plural(r.comments.length, "comment")));
+    return v_flex().rounded(6).border_1().border_color(t.border)
+      .child(h_flex().h(30).px(6).gap(8).items_center()
+        .child(avatar(t, r.avatar, r.login)).child(div().flex_1().min_w(0).truncate().font_semibold().child(r.login))
+        .child(reviewIcon(t, r.state))
+        .child(r.url ? ghButton(t, `gh-${id}`, r.url) : div().size(22)))
+      .child(r.comments.length
+        ? nested(v, id, `${r.login}'s comments`, head, () => commentList(v, r.comments, id))
+        : head(entry(t, `none-${id}`, null)));
+  }));
+}
+
+function checksMenu(v, pr) {
+  const { t } = v;
+  if (!pr.checks.length) return note(t, "No checks");
+  const order = { failed: 0, missing: 1, running: 2, passed: 3 };
+  return v_flex().gap(1).children([...pr.checks].sort((a, b) => order[a.state] - order[b.state]).map((ch, i) =>
+    entry(t, `pr${pr.number}-ck-${i}`, ch.url ? (_e, cx) => cx.open_url(ch.url) : null)
+      .child(checkIcon(t, ch.state)).child(avatar(t, ch.avatar, ch.name, 16))
+      .child(v_flex().flex_1().min_w(0).py(3)
+        .child(h_flex().gap(6).child(div().min_w(0).truncate().text_size(12.5).child(ch.name))
+          .when(ch.required, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Required"))))
+        .when(Boolean(ch.desc), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(ch.desc))))));
+}
+
+function conflictsMenu(v, pr, s) {
+  const { t } = v;
+  if (!s.conflicting) return note(t, "No conflicts");
+  if (!pr.conflicts?.length) return note(t, `GitHub reports conflicts with ${pr.base}, but they couldn't be worked out from this checkout`);
+  return v_flex().gap(1).children(pr.conflicts.map((f, i) => entry(t, `pr${pr.number}-cf-${i}`, null)
+    .child(icon("file", t.dim, 13))
+    .child(v_flex().flex_1().min_w(0).py(3).child(div().truncate().text_size(12.5).child(f.path))
+      .when(f.lines.length > 0, (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim)
+        .child(f.lines.map(([a, b]) => lineRange(a, b)).join(", ")))))));
+}
+
+// A row's head: icon, label, what's on the right, a chevron when it opens something.
+function rowHead(t, id, it, { active, open } = {}) {
+  return h_flex().id(id).h(30).px(4).gap(8).items_center().flex_none().rounded(6)
+    .when(Boolean(it.body || it.click), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
+    .when(Boolean(active), (el) => el.bg(t.selected))
+    .child(it.icon)
+    .child(div().flex_1().min_w(0).truncate().child(it.label))
+    .child(h_flex().gap(6).flex_none().items_center().text_size(12).children(it.right ?? []))
+    .when(Boolean(it.chevron), (el) => el.child(icon(open ? "chevron-down" : "chevron-right", t.dim, 12)));
+}
+
+// The dropdown under a Summary row; a nested page shows in its place with a back row.
+function menu(t, it, state) {
+  const v = { t, inline: false, state, pages: {} };
+  const list = it.body(v);
+  const page = state.drill && v.pages[state.drill];
+  return v_flex().id(`menu-${it.key}`).w(300).max_h(420).p(4).gap(2).rounded(8).bg(t.popover).border_1().border_color(t.border)
+    .shadow_lg().text_size(13).text_color(t.foreground).overflow_y_scrollbar()
+    .child(page
+      ? v_flex().gap(2)
+        .child(entry(t, "menu-back", (_e, cx) => { state.drill = null; cx.notify(); })
+          .child(icon("chevron-left", t.dim, 12)).child(div().flex_1().truncate().text_color(t.muted).child(page.title)))
+        .child(page.body())
+      : list);
+}
+
+function summaryRows(t, pr, ctx) {
+  const s = summarize(pr);
+  const { state } = ctx;
+  return v_flex().children(items(t, pr, s, ctx).map((it) => {
+    const id = `ghpr-${pr.number}-${it.key}`;
+    if (!it.body || it.click) return rowHead(t, id, it).when(Boolean(it.click), (el) => el.on_click(it.click));
+    return Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
+      .on_open_change((open, cx) => { state.open = open ? id : null; state.drill = null; cx.notify(); })
+      .trigger(rowHead(t, id, it))
+      .content(menu(t, it, state));
+  }));
+}
+
+// The PR tab: narrow, rows expand in place; wide, a list beside the selected row's content.
+function tabRows(t, pr, ctx) {
+  const s = summarize(pr);
+  const { state } = ctx;
+  const v = { t, inline: true, state, pages: {} };
+  const list = items(t, pr, s, ctx);
+  const wide = ctx.width >= WIDE;
+  const key = (it) => `pr${pr.number}-${it.key}`;
+  if (!wide) {
+    return v_flex().gap(1).children(list.map((it) => {
+      const open = Boolean(state.exp?.[key(it)]);
+      return v_flex()
+        .child(rowHead(t, `tab-${key(it)}`, { ...it, chevron: Boolean(it.body) }, { open })
+          .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { (state.exp ??= {})[key(it)] = !open; cx.notify(); })))
+        .when(open && Boolean(it.body), (el) => el.child(div().pl(22).pr(4).pb(6).child(it.body(v))));
+    }));
+  }
+  const sel = list.find((it) => it.body && key(it) === state.sel) ?? list.find((it) => it.key === "status");
+  return h_flex().items_start().gap(10)
+    .child(v_flex().w(260).flex_none().gap(1).children(list.map((it) =>
+      rowHead(t, `tab-${key(it)}`, { ...it, chevron: Boolean(it.body) }, { active: it === sel })
+        .when(Boolean(it.body), (el) => el.on_click((_e, cx) => { state.sel = key(it); cx.notify(); })))))
+    .child(v_flex().flex_1().min_w(0).pl(10).border_l_1().border_color(t.border).gap(4)
+      .child(div().h(30).flex().items_center().px(6).text_size(12).font_semibold().text_color(t.dim).child(sel.key === "status" ? "Status" : typeof sel.label === "string" ? sel.label : "Pull request"))
+      .child(sel.body(v)));
+}
+
+const register = {
+  header: (ctx) => {
+    const n = load(ctx)?.prs?.length ?? 0;
+    return n ? (n > 1 ? "Pull Requests" : "Pull Request") : null;
+  },
+  summary: (ctx) => {
+    const e = load(ctx);
+    if (!e?.prs?.length) return null;
+    return v_flex().gap(8).children(e.prs.map((pr) => summaryRows(ctx.t, pr, ctx)));
+  },
+  render: (ctx) => {
+    const { t } = ctx;
+    const e = load(ctx);
+    const msg = (text, color = t.muted) => div().px(4).py(6).text_size(12.5).text_color(color).child(text);
+    if (!ctx.branch) return msg("Not a git repository");
+    if (!e) return msg("Loading…");
+    if (e.error && !e.prs) return msg(e.error, t.blocked);
+    if (!e.prs?.length) return msg(`No open pull request for ${ctx.branch}`);
+    return v_flex().gap(12).children(e.prs.map((pr) => tabRows(t, pr, ctx)));
+  },
+};
+(globalThis.contextPanel ??= {})[MOD] = register;
+
+export default class GithubPr extends View {
+  init() {
+    const p = props() ?? {};
+    this.variant = p.variant ?? null;
+    if (this.variant === "merge") {
+      this.method = mergeMethod(p.pr);
+      this.deleteBranch = false;
+    }
+  }
+
+  render() {
+    const t = theme();
+    if (this.variant === "merge") return this.mergeDialog(t);
+    if (this.variant === "comment") return this.comment(t);
+    return div();
+  }
+
+  comment(t) {
+    const c = props().comment;
+    return v_flex().id("comment").size_full().bg(t.popover).text_color(t.foreground).text_size(13).overflow_y_scrollbar()
+      .child(v_flex().gap(6).p(10)
+        .child(h_flex().gap(8).items_center()
+          .child(avatar(t, c.avatar, c.login, 20))
+          .child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
+          .child(ghButton(t, "gh-comment", c.url)))
+        .child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`))
+        .child(TextView.markdown("comment-body", c.body || "_No text_").text_size(12.5)));
+  }
+
+  mergeDialog(t) {
+    const pr = props().pr;
+    const radio = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded_full().border_1()
+      .border_color(on ? t.accent : t.input).when(on, (el) => el.child(div().size(6).rounded_full().bg(t.accent)));
+    const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
+      .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).child(icon("check", t.accent_foreground, 11)));
+    const option = (id, mark, label, onClick) => h_flex().id(id).h(30).px(8).gap(10).items_center().rounded(6).cursor_pointer()
+      .hover((s) => s.bg(t.hover)).on_click(onClick).child(mark).child(label);
+    const button = (id, label, primary, onClick) => div().id(id).h(28).px(12).flex().items_center().rounded(7).text_size(12.8)
+      .when(primary, (el) => el.bg(t.solid).text_color(t.solid_foreground))
+      .when(!primary, (el) => el.border_1().border_color(t.border).hover((s) => s.bg(t.hover)))
+      .when(Boolean(onClick), (el) => el.cursor_pointer().on_click(onClick)).when(!onClick, (el) => el.opacity(0.5))
+      .child(label);
+    return v_flex().id("merge").size_full().bg(t.popover).text_color(t.foreground).text_size(13)
+      .child(v_flex().px(18).pt(16).pb(8).gap(3).flex_none()
+        .child(div().text_size(15).child(`Merge #${pr.number}`))
+        .child(div().text_size(12).text_color(t.muted).truncate().child(pr.title)))
+      .child(v_flex().flex_1().min_h(0).px(10).gap(1)
+        .children(pr.methods.map((m) => option(`m-${m}`, radio(this.method === m), METHODS[m], (_e, cx) => { this.method = m; cx.notify(); })))
+        .child(div().h(1).mx(8).my(6).bg(t.border))
+        .child(option("delete-branch", box(this.deleteBranch), `Delete ${pr.head} on GitHub`, (_e, cx) => { this.deleteBranch = !this.deleteBranch; cx.notify(); }))
+        .when(Boolean(this.error), (el) => el.child(div().px(8).pt(6).text_size(12).text_color(t.blocked).child(this.error))))
+      .child(h_flex().px(18).py(12).gap(8).flex_none().justify_end().border_t_1().border_color(t.border)
+        .child(button("cancel", "Cancel", false, () => closeOverlay(props().overlay)))
+        .child(button("do-merge", this.busy ? "Merging…" : METHODS[this.method], true, this.busy ? null : (_e, cx) => {
+          this.busy = true;
+          this.error = null;
+          cx.spawn(async (cx) => {
+            try {
+              await merge(pr, this.method, this.deleteBranch);
+              closeOverlay(props().overlay);
+            } catch (e) {
+              this.error = String(e?.message ?? e);
+            }
+            this.busy = false;
+            cx.notify();
+          });
+          cx.notify();
+        })));
+  }
+}
