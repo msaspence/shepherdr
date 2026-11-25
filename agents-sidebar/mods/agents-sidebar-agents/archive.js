@@ -1,6 +1,6 @@
 // Archiving an agent (its row's archive button): a dialog asks what to clean up, then the tab settles and the
 // clean-up runs in this order, stopping at the first failure and saying so, so nothing unpushed goes:
-//   push the branch (committing what's left as "Clean up commit"), close the agent's PRs, delete the branch on
+//   commit what's left as "Clean up commit" (or, unticked, let the worktree's removal discard it), push the branch, close the agent's PRs, delete the branch on
 //   origin, remove the worktree, delete the local branch.
 // The PRs come from github-pr, which registers agentPrs/closePr on globalThis.contextPanel (mods can't import each other).
 
@@ -11,7 +11,7 @@ import { checking, closeOverlay, exec, notify, openOverlay, panes, props, run, s
 const MOD = "agents-sidebar-agents";
 const prMod = () => globalThis.contextPanel?.["github-pr"];
 
-export const openArchive = (a) => openOverlay({ mod: MOD, kind: "dialog", width: 400, height: 380,
+export const openArchive = (a) => openOverlay({ mod: MOD, kind: "dialog", width: 400, height: 410,
   props: { archive: { tab: a.tab, pane: a.pane, space: a.space, name: a.name ?? null } } });
 
 function gitIn(on) {
@@ -44,12 +44,13 @@ async function inspect(arch) {
     worktree: gitDir !== common,
     // The base branch is never offered: deleting main on origin is never a clean-up.
     branch: branch && branch !== base && !["main", "master"].includes(branch) ? branch : null,
+    dirty: Boolean(await git(top, "status", "--porcelain").catch(() => "")),
     sharedWith: panes().some((p) => p.tab !== arch.tab && p.terminal && inside(p)),
   };
 }
 
 export function initArchive(view, cx) {
-  view.opts = { local: true, push: true, remote: false, prs: true, worktree: true };
+  view.opts = { local: true, commit: true, push: true, remote: false, prs: true, worktree: true };
   view.info = undefined; // undefined while looking, null when there's nothing to clean up
   view.prs = undefined;
   if (checking()) return;
@@ -71,6 +72,7 @@ function available(info, prs, o) {
     worktree: Boolean(info?.worktree && !info.sharedWith),
     // A branch can't be deleted while a checkout has it: only with its worktree going too.
     local: Boolean(info?.branch && info.worktree && !info.sharedWith && o.worktree),
+    commit: Boolean(info?.dirty && info.branch && info.worktree && !info.sharedWith && o.worktree && o.local),
     push: Boolean(info?.branch && info.worktree && !info.sharedWith && o.worktree && o.local),
     remote: Boolean(info?.branch),
     prs: Boolean(prs?.length),
@@ -81,11 +83,12 @@ async function cleanUp(info, prs, o) {
   const git = gitIn(info.on);
   const done = [];
   try {
+    if (o.commit) {
+      await git(info.top, "add", "-A");
+      await git(info.top, "commit", "-m", "Clean up commit");
+      done.push("committed what was left");
+    }
     if (o.push) {
-      if (await git(info.top, "status", "--porcelain")) {
-        await git(info.top, "add", "-A");
-        await git(info.top, "commit", "-m", "Clean up commit");
-      }
       await git(info.top, "push", "-u", "origin", info.branch);
       done.push(`pushed ${info.branch}`);
     }
@@ -98,7 +101,9 @@ async function cleanUp(info, prs, o) {
       done.push(`deleted origin/${info.branch}`);
     }
     if (o.worktree) {
-      await git(info.main, "worktree", "remove", info.top); // refuses uncommitted changes
+      // Refuses uncommitted changes, unless the branch is going and including them was unticked: then they're discarded.
+      const discard = o.local && info.dirty && !o.commit;
+      await git(info.main, "worktree", "remove", ...(discard ? ["--force"] : []), info.top);
       done.push(`removed ${info.top}`);
     }
     if (o.local) {
@@ -148,6 +153,7 @@ export function archiveDialog(view, t) {
       .child(option("local", branch ? `Remove local branch ${branch}` : "Remove local branch",
         !branch ? "No branch to remove" : !info.worktree ? "It's checked out in the main checkout"
           : info.sharedWith ? "Another tab is still in the worktree" : "Needs the worktree removed too"))
+      .child(option("commit", "Include unstaged changes", info.dirty ? "Only when removing the local branch" : "No uncommitted changes", true))
       .child(option("push", "Push to origin first", "Only when removing the local branch", true, (on) => { if (on) o.remote = false; }))
       .child(option("remote", branch ? `Remove origin/${branch}` : "Remove remote branch", "No branch to remove", false,
         (on) => { if (on) o.push = false; }))
