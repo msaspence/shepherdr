@@ -193,6 +193,25 @@ function items(t, pr, s, ctx) {
   ];
 }
 
+// Why GitHub won't merge it yet, each [icon, text], in the order they'd need fixing.
+function blockers(t, pr, s) {
+  const c = C(t);
+  const n = (f) => pr.checks.filter((ch) => ch.required && f(ch)).length;
+  const failed = n((ch) => ch.state === "failed"), pending = n((ch) => ch.state === "running"), missing = n((ch) => ch.state === "missing");
+  const out = [];
+  if (pr.draft) out.push([icon("file", t.dim, 12), "This pull request is still a draft"]);
+  if (s.conflicting) out.push([icon("git-conflict", c.red, 12), `Conflicts with ${pr.base} must be resolved`]);
+  if (s.changesRequested) out.push([icon("file-diff", c.red, 12), s.reviews.changes > 1 ? `${s.reviews.changes} reviewers requested changes` : "Changes were requested"]);
+  else if (pr.decision === "REVIEW_REQUIRED") out.push([icon("badge-check", c.grey, 12), "An approving review is required"]);
+  if (failed) out.push([icon("hexagon-alert", c.red, 12), `${plural(failed, "required check")} failing`]);
+  if (pending) out.push([running(t, 12), `${plural(pending, "required check")} still running`]);
+  if (missing) out.push([icon("hexagon-alert", c.grey, 12), `${plural(missing, "required check")} not reported`]);
+  if (pr.mergeState === "BEHIND") out.push([icon("git-merge", c.gold, 12), `The branch is out of date with ${pr.base}`]);
+  if (pr.mergeState === "UNKNOWN") out.push([icon("dot", c.grey, 12), "GitHub is still checking whether it can merge"]);
+  if (!out.length) out.push([icon("hexagon-alert", c.grey, 12), `Blocked by ${pr.base}'s branch rules`]);
+  return out;
+}
+
 function statusMenu(v, pr, s) {
   const { t, state } = v;
   const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
@@ -205,6 +224,8 @@ function statusMenu(v, pr, s) {
         cx.notify();
       } : null).when(!s.ready, (el) => el.text_color(t.dim))
       .child(icon("git-merge", s.ready ? C(t).green : t.dim)).child(div().flex_1().child(s.ready ? "Merge…" : "Merging is blocked")))
+    .when(!s.ready, (el) => el.child(v_flex().pl(28).pr(6).pb(4).gap(2).children(blockers(t, pr, s).map(([mark, text]) =>
+      h_flex().min_h(20).gap(6).items_center().text_size(12).text_color(t.muted).child(mark).child(div().flex_1().min_w(0).child(text))))))
     .child(entry(t, `auto-${pr.number}`, pr.canAuto && !busy ? (_e, cx) => {
         state.autoBusy = pr.url;
         state.autoError = null;
