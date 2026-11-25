@@ -125,40 +125,35 @@ export function archiveDialog(view, t) {
   const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
     .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent)
       .child(svg("mods/workspace-chrome/check.svg").size(11).text_color(t.accent_foreground)));
-  // Unavailable options show unticked and dimmed, with why.
-  const option = (key, label, why, indent = false, toggle) => {
-    const on = can[key] && o[key];
-    return h_flex().id(`opt-${key}`).min_h(30).px(8).gap(10).items_center().rounded(6)
+  // Options that don't apply here aren't shown.
+  const option = (key, label, indent = false, toggle) => !can[key] ? null
+    : h_flex().id(`opt-${key}`).h(30).px(8).gap(10).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
       .when(indent, (el) => el.ml(24))
-      .when(can[key], (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => {
+      .on_click((_e, cx) => {
         o[key] = !o[key];
         toggle?.(o[key]);
         cx.notify();
-      }))
-      .when(!can[key], (el) => el.opacity(0.5))
-      .child(box(on))
-      .child(v_flex().flex_1().min_w(0).py(4).child(div().truncate().child(label))
-        .when(!can[key] && Boolean(why), (el) => el.child(div().text_size(11.5).text_color(t.dim).truncate().child(why))));
-  };
+      })
+      .child(box(o[key]))
+      .child(div().flex_1().min_w(0).truncate().child(label));
   const button = (id, label, primary, onClick) => div().id(id).h(28).px(12).flex().items_center().rounded(7).text_size(12.8)
     .when(primary, (el) => el.bg(t.solid).text_color(t.solid_foreground))
     .when(!primary, (el) => el.border_1().border_color(t.border).hover((s) => s.bg(t.hover)))
     .cursor_pointer().on_click(onClick).child(label);
   const branch = info?.branch;
-  const prLabel = prs === undefined ? "Close attached PRs (looking…)"
-    : prs.length ? `Close attached PRs (${prs.map((pr) => `#${pr.number}`).join(", ")})` : "Close attached PRs";
-  const body = info === undefined ? div().px(8).py(6).text_color(t.dim).child("Looking at the checkout…")
-    : info === null ? div().px(8).py(6).text_color(t.dim).child("Not in a git repository: nothing to clean up.")
-    : v_flex().gap(1)
-      .child(option("local", branch ? `Remove local branch ${branch}` : "Remove local branch",
-        !branch ? "No branch to remove" : !info.worktree ? "It's checked out in the main checkout"
-          : info.sharedWith ? "Another tab is still in the worktree" : "Needs the worktree removed too"))
-      .child(option("commit", "Include unstaged changes", info.dirty ? "Only when removing the local branch" : "No uncommitted changes", true))
-      .child(option("push", "Push to origin first", "Only when removing the local branch", true, (on) => { if (on) o.remote = false; }))
-      .child(option("remote", branch ? `Remove origin/${branch}` : "Remove remote branch", "No branch to remove", false,
-        (on) => { if (on) o.push = false; }))
-      .child(option("prs", prLabel, prs === undefined ? null : view.prsNote ?? "No open PRs"))
-      .child(option("worktree", "Remove worktree", !info.worktree ? "This is the main checkout" : "Another tab is still in it"));
+  const note = (text) => div().px(8).py(6).text_color(t.dim).child(text);
+  const rows = info ? [
+    option("local", `Remove local branch ${branch}`),
+    option("commit", "Include unstaged changes", true),
+    option("push", "Push to origin first", true, (on) => { if (on) o.remote = false; }),
+    option("remote", `Remove origin/${branch}`, false, (on) => { if (on) o.push = false; }),
+    option("prs", `Close attached PRs (${(prs ?? []).map((pr) => `#${pr.number}`).join(", ")})`),
+    option("worktree", "Remove worktree"),
+  ].filter(Boolean) : [];
+  const body = info === undefined ? note("Looking at the checkout…")
+    : v_flex().gap(1).children(rows)
+      .when(prs === undefined, (el) => el.child(note("Looking for PRs…")))
+      .when(!rows.length && prs !== undefined, (el) => el.child(note("Nothing to clean up.")));
   return v_flex().id("archive").size_full().bg(t.popover).text_color(t.foreground).text_size(13)
     .child(v_flex().px(18).pt(16).pb(8).gap(3).flex_none()
       .child(div().text_size(15).child("Archive agent"))
