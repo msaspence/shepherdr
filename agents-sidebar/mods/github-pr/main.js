@@ -389,14 +389,20 @@ function createButton(t, ctx) {
     .child(sent ? "Asked" : "Create PR"));
 }
 
-// The PR tab's field for attaching any PR (a URL, or a number in the agent's repo) to this agent.
+// The PR tab's field for attaching any PR (a URL, or a number in the agent's repo) to this agent. A button until
+// clicked: an input's state can't be made during render, only in an event handler.
 function attachField(t, ctx) {
   const { state } = ctx;
+  const wrap = v_flex().gap(4).pt(10).mt(6).border_t_1().border_color(t.border);
   if (!state.input) {
-    state.input = InputState.new({ placeholder: "Attach a PR: URL or number" });
-    state.input.on("submit", (_e, cx) => attach(ctx, cx));
+    return wrap.child(entry(t, "gh-attach-open", (_e, cx) => {
+      state.input = InputState.new({ placeholder: "PR URL or number" });
+      state.input.on("submit", (_e, cx) => attach(ctx, cx));
+      state.input.focus();
+      cx.notify();
+    }).text_color(t.muted).child(svg(I("git-pull-request")).size(14).flex_none()).child(div().flex_1().child("Attach a pull request…")));
   }
-  return v_flex().gap(4).pt(10).mt(6).border_t_1().border_color(t.border)
+  return wrap
     .child(h_flex().gap(6).items_center()
       .child(Input.new(state.input).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.input).bg(t.background).text_size(12.5))
       .child(div().id("gh-attach").h(28).px(10).flex().flex_none().items_center().rounded(6).text_size(12)
