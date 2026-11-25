@@ -6,7 +6,7 @@
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, TextView } from "gpui-base";
 import { checking, closeOverlay, hc, openOverlay, props, spaces, theme } from "herdr";
-import { avatarPath, listRepos, load, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
+import { attachingFor, avatarPath, listRepos, load, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
 
 const MOD = "github-pr";
 const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
@@ -411,18 +411,34 @@ function actions(t, ctx) {
     .when(Boolean(state.linkError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.linkError)));
 }
 
+// A PR attached a moment ago, until its details arrive: its repo and number, a spinner and "Loading…".
+function loadingRows(t, ctx, prs) {
+  const have = new Set((prs ?? []).map((pr) => pr.url));
+  return attachingFor(ctx.agent?.terminal).filter((url) => !have.has(url)).map((url, i) => {
+    const [, repo, number] = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/) ?? [];
+    return h_flex().id(`ghpr-loading-${i}`).h(30).px(4).gap(8).items_center().flex_none()
+      .child(svg(I("spinner")).size(14).flex_none().text_color(t.muted).spin(900).loop("opacity", { from: 0.97, to: 1, period: 1000 }))
+      .child(h_flex().flex_1().min_w(0).gap(6).child(div().min_w(0).truncate().child(repo ?? url))
+        .child(div().flex_none().text_color(t.dim).child(number ? `#${number}` : "")))
+      .child(div().flex_none().text_size(12).text_color(t.dim).child("Loading…"));
+  });
+}
+
 const register = {
   header: (ctx) => {
-    const n = load(ctx)?.prs?.length ?? 0;
+    const e = load(ctx);
+    const n = (e?.prs?.length ?? 0) + loadingRows(ctx.t, ctx, e?.prs).length;
     return n > 1 ? "Pull Requests" : n || ctx.agent?.terminal ? "Pull Request" : null;
   },
   summary: (ctx) => {
     const { t } = ctx;
     const e = load(ctx);
+    const loading = loadingRows(t, ctx, e?.prs);
     if (!ctx.agent?.terminal && !e?.prs?.length) return null;
     return v_flex()
       .when(Boolean(e?.prs?.length), (el) => el.child(v_flex().gap(8).children(e.prs.map((pr) => summaryRows(t, pr, ctx)))))
-      .when(Boolean(ctx.agent?.terminal) && !e?.prs?.length, (el) => el.child(actions(t, ctx))); // the PR tab always has them
+      .children(loading)
+      .when(Boolean(ctx.agent?.terminal) && !e?.prs?.length && !loading.length, (el) => el.child(actions(t, ctx))); // the PR tab always has them
   },
   render: (ctx) => {
     const { t } = ctx;
@@ -430,9 +446,10 @@ const register = {
     const msg = (text, color = t.muted) => div().px(4).py(6).text_size(12.5).text_color(color).child(text);
     if (!ctx.cwd) return msg("No folder");
     if (!e) return msg("Loading…");
+    const loading = loadingRows(t, ctx, e.prs);
     const body = e.error && !e.prs ? msg(e.error, t.blocked)
-      : !e.prs?.length ? msg(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request")
-      : v_flex().gap(12).children(e.prs.map((pr) => tabRows(t, pr, ctx)));
+      : !e.prs?.length && !loading.length ? msg(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request")
+      : v_flex().gap(12).children((e.prs ?? []).map((pr) => tabRows(t, pr, ctx))).children(loading);
     return v_flex().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
   },
 };

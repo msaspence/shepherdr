@@ -48,6 +48,9 @@ done`;
 const entries = new Map(); // "terminal\ncwd\nbranch" -> { at, busy, prs, error }
 const avatars = new Set(); // cached avatar files, by name
 let links = {}, linksText = null;
+let gen = 0; // bumped by invalidate, so a fetch already running when something changed doesn't count as fresh
+const attaching = new Map(); // terminal -> Set of PR URLs attached but not fetched yet
+const REV = "agents-sidebar.github-pr-rev";
 
 // Reads .links.json; true (and every answer stale) when it changed.
 async function readLinks() {
@@ -61,14 +64,27 @@ async function readLinks() {
 const linksFor = (terminal) => ({ add: links[terminal]?.add ?? [], drop: links[terminal]?.drop ?? [] });
 
 // Attaches a PR to an agent (on), or removes it (off, which also keeps its branch's PR from coming back).
+// A removed PR goes from the cached answers at once; an attached one shows as loading (attaching) until it's
+// fetched, which starts at once: bumping REV redraws every panel, and the redraw finds its answer stale.
 export async function setLink(terminal, url, on) {
   await readLinks();
   const l = linksFor(terminal);
   const next = on ? { add: [...new Set([...l.add, url])], drop: l.drop.filter((u) => u !== url) }
     : { add: l.add.filter((u) => u !== url), drop: [...new Set([...l.drop, url])] };
   await writeTextFile(LINKS(), JSON.stringify({ ...links, [terminal]: next }, null, 2) + "\n", linksText);
+  if (!attaching.has(terminal)) attaching.set(terminal, new Set());
+  if (on) attaching.get(terminal).add(url);
+  else {
+    attaching.get(terminal).delete(url);
+    for (const [key, e] of entries) if (key.startsWith(`${terminal}\n`) && e.prs) e.prs = e.prs.filter((pr) => pr.url !== url);
+  }
   await readLinks();
+  setShared(REV, Date.now());
 }
+
+// PRs attached to this agent that haven't been fetched yet.
+export const attachingFor = (terminal) => [...(attaching.get(terminal) ?? [])];
+
 
 async function gh(args, cwd) {
   const r = await exec("gh", args, { cwd: cwd ?? home(), timeout: 30000 });
@@ -100,13 +116,16 @@ export function load(ctx) {
   if (!e.busy && !checking() && Date.now() - e.at > POLL) {
     e.busy = true;
     cx.spawn(async (cx) => {
+      const started = gen;
+      const waiting = attachingFor(terminal);
       try {
         e.prs = await fetchPrs(cwd, branch, terminal);
         e.error = null;
       } catch (err) {
         e.error = String(err?.message ?? err);
       }
-      e.at = Date.now();
+      for (const url of waiting) attaching.get(terminal)?.delete(url);
+      e.at = started === gen ? Date.now() : 1;
       e.busy = false;
       cx.notify();
     });
@@ -116,6 +135,7 @@ export function load(ctx) {
 
 // Every cached answer is fetched again on its panel's next render (after a merge, say).
 export function invalidate() {
+  gen++;
   for (const e of entries.values()) e.at = 1;
 }
 
