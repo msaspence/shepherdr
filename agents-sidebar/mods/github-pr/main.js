@@ -20,10 +20,12 @@ const stop = (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
 const C = (t) => ({ green: t.ansi2, gold: t.ansi3, red: t.ansi1, grey: t.dim });
 
 const icon = (name, color, size = 14) => svg(I(name)).size(size).flex_none().text_color(color);
-// A running check: the gold dot inside a turning ring.
+// A running check: the gold dot inside a turning ring. spin() alone repaints at ~8 fps; the near-invisible
+// opacity loop keeps the window repainting at ~30 fps, so the ring turns smoothly (as herdr-chat's spinner does).
 const running = (t, size = 14) => div().relative().size(size).flex_none()
   .child(svg(I("dot")).absolute().inset_0().size(size).text_color(C(t).gold))
-  .child(svg(I("spinner")).absolute().inset_0().size(size).text_color(C(t).gold).spin(900));
+  .child(svg(I("spinner")).absolute().inset_0().size(size).text_color(C(t).gold).spin(900)
+    .loop("opacity", { from: 0.97, to: 1, period: 1000 }));
 
 function avatar(t, url, login, size = 18) {
   const file = avatarPath(url);
