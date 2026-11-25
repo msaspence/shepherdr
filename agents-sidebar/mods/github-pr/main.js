@@ -273,10 +273,16 @@ function statusMenu(v, pr, s) {
     // A bare Popup the arrow toggles: a Popover here would be nested in the row's dropdown and fight it for clicks.
     const open = state.methodsFor === key;
     const arrow = Popup.new(`${id}-methods`, look(h_flex().id(`${id}-arrow`).px(6).rounded_r(6), green, enabled)
-        .border_l_1().border_color(t.background).on_click((_e, cx) => { state.methodsFor = open ? null : key; cx.notify(); })
+        .border_l_1().border_color(t.background).on_click((_e, cx) => {
+          // A press on the arrow already closed an open menu (outside it): don't reopen it on the same click.
+          if (!open && Date.now() - (state.methodsClosedAt ?? 0) < 400) return;
+          state.methodsFor = open ? null : key;
+          cx.notify();
+        })
         .child(icon("chevron-down", green && enabled ? t.background : t.muted, 12)))
       .anchor("top_right")
-      .when(open, (el) => el.content(div().pt(4).child(v_flex().w(220).p(4).gap(1).rounded(8).bg(t.popover).border_1().border_color(t.border)
+      .when(open, (el) => el.content(div().pt(4).child(v_flex().id(`${id}-method-menu`).w(220).p(4).gap(1).rounded(8).bg(t.popover).border_1().border_color(t.border)
+        .on_mouse_down_out((_e, cx) => { state.methodsFor = null; state.methodsClosedAt = Date.now(); cx.notify(); }) // a press elsewhere closes it
         .shadow_lg().text_size(13).text_color(t.foreground)
         .children(pr.methods.map((m) => entry(t, `${id}-method-${m}`, (_e, cx) => {
           state.methodsFor = null;
