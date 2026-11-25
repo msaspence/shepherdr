@@ -63,7 +63,17 @@ padding), so the rail is the same rows with the labels hidden.
 **Layout** (`layouts/agents-sidebar.json`): a `column` root with `"titlebar": "none"` and
 `"traffic_lights": [14, 13]`:
 
-- `titlebar`: block, 42px, `window_drag`, mod `agents-sidebar-titlebar`.
+- `titlebar`: column, 42px, `window_drag`, `chrome`, `"resizable": false`.
+  - `titlebar-slot`: row, weight 1, `"resizable": false`.
+    - `titlebar-main`: block, weight 1, mod `agents-sidebar-titlebar`.
+    - The slot: any block added after `titlebar-main` sits at the bar's right end, in order. Give it a px
+      width (with its own margin), stop presses on its controls (the bar is `window_drag`), and leave
+      its background transparent. For example,
+      `{ "id": "my-status", "type": "block", "size": { "px": 120 }, "content": { "mod": "my-status" } }`.
+    - `titlebar-opens-in`: block, 200px, mod [`opens-in`](../opens-in/) with props
+      `{ "variant": "horizontal-icons", "path_shared": "agents-sidebar.active-cwd" }`: the person's chosen
+      apps, opening the selected agent's folder.
+  - `titlebar-rule`: row, 1px, `border` background, no children: the bar's bottom line.
 - `body`: row, `"resizable": false`, a 1px `border` divider.
   - `sidebar`: column, 268px (min 46, max 480), `chrome`, `"resizable": false`, no divider.
     - `spaces`: block, weight 1, min 40, mod `agents-sidebar-spaces`.

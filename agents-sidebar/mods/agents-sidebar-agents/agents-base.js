@@ -296,7 +296,8 @@ export default class Agents extends View {
     // agent's own title, never an automatic tab number unless two rows would
     // otherwise read the same.
     // Read the pane snapshot once: every host read copies the whole list into JS.
-    const leads = leadPanes(panes());
+    const allPanes = panes();
+    const leads = leadPanes(allPanes);
     const tabs = new Map(spaces().flatMap(s => s.tabs).map(tab => [tab.id, tab]));
     const labels = new Map(list.map(a => {
       const tab = tabs.get(a.tab);
@@ -315,6 +316,10 @@ export default class Agents extends View {
     const current = list.find(selected);
     const activeTitle = current ? (/^\d+$/.test(label(current)) ? current.program?.name || label(current) : label(current)) : null;
     if (shared("agents-sidebar.active-title") !== activeTitle) setShared("agents-sidebar.active-title", activeTitle);
+    // Its live folder, for opens-in; null on another machine, where this computer's apps can't open it.
+    const local = current && !spaces().find((x) => x.id === current.space)?.machine;
+    const activeCwd = (local && allPanes.find((p) => p.pane === current.pane)?.cwd) || null;
+    if (shared("agents-sidebar.active-cwd") !== activeCwd) setShared("agents-sidebar.active-cwd", activeCwd);
 
     const row = (a, i, subs = []) => {
       const pic = icon(a.program, 16, t.foreground);

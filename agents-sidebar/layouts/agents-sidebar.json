@@ -29,14 +29,58 @@
   "children": [
     {
       "id": "titlebar",
-      "type": "block",
+      "type": "column",
       "size": {
         "px": 42
       },
       "window_drag": true,
-      "content": {
-        "mod": "agents-sidebar-titlebar"
-      }
+      "background": "chrome",
+      "resizable": false,
+      "children": [
+        {
+          "id": "titlebar-slot",
+          "type": "row",
+          "size": {
+            "weight": 1
+          },
+          "resizable": false,
+          "children": [
+            {
+              "id": "titlebar-main",
+              "type": "block",
+              "size": {
+                "weight": 1
+              },
+              "content": {
+                "mod": "agents-sidebar-titlebar"
+              }
+            },
+            {
+              "id": "titlebar-opens-in",
+              "type": "block",
+              "size": {
+                "px": 200
+              },
+              "content": {
+                "mod": "opens-in",
+                "props": {
+                  "variant": "horizontal-icons",
+                  "path_shared": "agents-sidebar.active-cwd"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "titlebar-rule",
+          "type": "row",
+          "size": {
+            "px": 1
+          },
+          "background": "border",
+          "children": []
+        }
+      ]
     },
     {
       "id": "body",

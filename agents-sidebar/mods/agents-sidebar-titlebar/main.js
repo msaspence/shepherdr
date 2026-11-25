@@ -18,7 +18,7 @@ export default class SideTitlebar extends View {
     const peek = Boolean(props()?.peek);
     const mac = window()?.platform === "macos" && !window()?.fullscreen;
     return h_flex().id("titlebar").size_full().pl(mac ? 80 : 10).items_center()
-      .when(!peek, (el) => el.bg(t.chrome).border_b(1).border_color(t.border))
+      // The layout's titlebar node paints the background and bottom rule, so they run under the slot too.
       // A window overlay drags on any press its mod doesn't stop.
       .when(peek, (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation()))
       .child(div().id("sidebar-toggle").size(26).flex_none().flex().items_center().justify_center().rounded(6)

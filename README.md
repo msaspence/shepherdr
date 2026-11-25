@@ -7,6 +7,7 @@ home (`layouts/`, `mods/`), with a `RECIPE.md` (the brief another agent can buil
 | Entry | What it is |
 |---|---|
 | [agents-sidebar](agents-sidebar/) | A layout: spaces and the active space's agents in one collapsible sidebar, the selected agent's chat filling the window. |
+| [opens-in](opens-in/) | A mod: open a folder in the apps you choose (Finder, editors, terminals), as icons, a list or a dropdown button. |
 
 ## Installing an entry
 

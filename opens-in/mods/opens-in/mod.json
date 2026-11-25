@@ -1,0 +1,8 @@
+{
+  "place": "none",
+  "title": "Open In",
+  "overlay": { "kind": "dialog", "width": 440, "height": 520 },
+  "palette": [
+    { "title": "Open In: choose apps", "command": "mod.open", "args": { "name": "opens-in" }, "words": "open in editor finder settings apps" }
+  ]
+}
