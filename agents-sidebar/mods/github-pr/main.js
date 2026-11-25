@@ -113,14 +113,14 @@ function commentBody(t, c, id) {
     .child(h_flex().gap(8).items_center()
       .child(avatar(t, c.avatar, c.login)).child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
       .child(ghButton(t, `gh-${id}`, c.url)))
-    .child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`))
+    .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`)))
     .child(TextView.markdown(`md-${id}`, c.body || "_No text_").text_size(12.5));
 }
 
 // Review comments, grouped by author: each one's file and line, opening the comment.
 function commentList(v, comments, scope) {
   const { t } = v;
-  if (!comments.length) return note(t, "No review comments");
+  if (!comments.length) return note(t, "No comments");
   const groups = new Map();
   for (const c of comments) groups.set(c.login, [...(groups.get(c.login) ?? []), c]);
   return v_flex().gap(2).children([...groups].map(([login, list]) => v_flex()
@@ -128,9 +128,11 @@ function commentList(v, comments, scope) {
     .children(list.map((c) => {
       const id = `${scope}-${c.id}`;
       const head = (el) => el.pl(32).child(div().flex_1().min_w(0).truncate().text_size(12)
-        .child(h_flex().gap(6).child(div().min_w(0).truncate().child(c.path.split("/").pop()))
-          .child(div().flex_none().text_color(t.dim).child(lineRange(c.start, c.line)))));
-      if (v.inline) return nested(v, id, c.path, head, () => commentBody(t, c, id));
+        .child(c.path
+          ? h_flex().gap(6).child(div().min_w(0).truncate().child(c.path.split("/").pop()))
+            .child(div().flex_none().text_color(t.dim).child(lineRange(c.start, c.line)))
+          : div().truncate().text_color(t.muted).child(c.snippet)));
+      if (v.inline) return nested(v, id, c.path ?? c.snippet, head, () => commentBody(t, c, id));
       return head(entry(t, `c-${id}`, (_e, cx) => {
         v.state.open = null; // the dropdown draws above overlays, so it makes way for the comment
         openOverlay({ mod: MOD, kind: "popup", at: "pointer", width: 380, height: Math.min(440, 120 + Math.ceil(c.body.length / 48) * 20),
@@ -355,7 +357,7 @@ export default class GithubPr extends View {
           .child(avatar(t, c.avatar, c.login, 20))
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
           .child(ghButton(t, "gh-comment", c.url)))
-        .child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`))
+        .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path} ${lineRange(c.start, c.line)}`)))
         .child(TextView.markdown("comment-body", c.body || "_No text_").text_size(12.5)));
   }
 

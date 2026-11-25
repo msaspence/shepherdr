@@ -167,8 +167,8 @@ and one GraphQL query per PR (`data.js`, cached per folder and branch, refetched
 Summary lines under "Pull Request": repo + `#n` (click: the PR tab; GitHub icon: the browser), status (an
 indicator, first that applies: red ring for conflicts, approved/changes/pending arcs when changes are requested,
 passed/running/failed/not-reporting arcs when checks fail, green check when ready; dropdown with Merge… (a
-dialog: method, delete the branch on GitHub) and Auto-merge), changes, reviews, comments (review-thread comments
-grouped by author; one opens in a popup), checks (required ones not reporting come from branch protection) and
+dialog: method, delete the branch on GitHub) and Auto-merge), changes, reviews, comments (review-thread and conversation
+comments grouped by author, each labelled file + lines, or the start of its text; one opens in a popup), checks (required ones not reporting come from branch protection) and
 conflicts (worked out locally: `git fetch origin <base>` then `git merge-tree --write-tree` against HEAD, only
 when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list replaces the menu with a back row.
 In the PR tab the same rows expand in place below 560px, and from 560px are a list beside the selected row's

@@ -17,6 +17,7 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!){
    baseRef{ branchProtectionRule{ requiredStatusCheckContexts } }
    reviewRequests(first:30){ nodes{ requestedReviewer{ __typename ... on User{ login avatarUrl } ... on Team{ name avatarUrl } } } }
    reviews(first:100){ nodes{ id url state author{ login avatarUrl } } }
+   comments(first:100){ nodes{ id url body author{ login avatarUrl } } }
    reviewThreads(first:100){ nodes{ isResolved path line startLine originalLine originalStartLine
     comments(first:50){ nodes{ id url body author{ login avatarUrl } } } } }
    commits(last:1){ nodes{ commit{ statusCheckRollup{ contexts(first:100){ nodes{ __typename
@@ -99,12 +100,18 @@ const PASS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const OPINION = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]);
 const RUN_WORDS = { SUCCESS: "Successful", NEUTRAL: "Neutral", SKIPPED: "Skipped", FAILURE: "Failing", TIMED_OUT: "Timed out", CANCELLED: "Cancelled", ACTION_REQUIRED: "Action required", STARTUP_FAILURE: "Startup failure", STALE: "Stale" };
 
+// The start of a comment's text as one plain line: no HTML, markdown marks or line breaks.
+export const snippet = (body) => (body ?? "").replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]+>/g, " ")
+  .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[#>*_`~|]/g, "").replace(/\s+/g, " ").trim().slice(0, 120) || "No text";
+
 export function normalize(owner, repo, r) {
   const p = r.pullRequest;
   const who = (a) => ({ login: a?.login ?? "ghost", avatar: a?.avatarUrl ?? null });
   const comments = p.reviewThreads.nodes.flatMap((th) => th.comments.nodes.map((c) => ({
     id: c.id, url: c.url, body: c.body ?? "", path: th.path, resolved: th.isResolved,
     line: th.line ?? th.originalLine, start: th.startLine ?? th.originalStartLine, ...who(c.author) })));
+  // Conversation comments have no file: they're labelled with the start of their text instead.
+  const general = p.comments.nodes.map((c) => ({ id: c.id, url: c.url, body: c.body ?? "", path: null, snippet: snippet(c.body), ...who(c.author) }));
 
   // Each reviewer's standing review: their latest approval, change request or dismissal, else their latest comment.
   // Requested reviewers (again, or for the first time) are pending.
@@ -143,7 +150,7 @@ export function normalize(owner, repo, r) {
     base: p.baseRefName, head: p.headRefName, headRepo: p.headRepository?.nameWithOwner ?? null,
     methods: [r.squashMergeAllowed && "squash", r.mergeCommitAllowed && "merge", r.rebaseMergeAllowed && "rebase"].filter(Boolean),
     autoMerge: Boolean(p.autoMergeRequest), canAuto: p.viewerCanEnableAutoMerge || p.viewerCanDisableAutoMerge,
-    reviews, comments, checks, conflicts: null,
+    reviews, comments: [...general, ...comments], checks, conflicts: null,
   };
 }
 
