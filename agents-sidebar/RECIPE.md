@@ -177,8 +177,8 @@ when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list repl
 In the PR tab the same rows expand in place below 560px, and from 560px are one list of every PR's rows beside a
 single pane with the selected row's content (headed "#n · Row" when there are several PRs); nested lists and comments then expand in place. An agent's PRs are its branch's open PRs plus ones attached to it, minus ones removed from it (a removed
 branch PR isn't added back). Kept per agent terminal in `mods/github-pr/.links.json` (`{ "<terminal>": { "add":
-[url], "drop": [url] } }`, git-ignored). The PR tab's repo heading has an × to remove it. Under the PRs in the PR tab (in the Summary only while there are none), two small
-buttons side by side: Create New, then Attach Existing (a 480×520 dialog: a repository picker, defaulting to the
+[url], "drop": [url] } }`, git-ignored). The PR tab's title row has an outline "Unlink from agent" button (`unlink.svg`) to remove it. Under the PRs in the PR tab (in the Summary only while there are none), two small
+buttons side by side: Create New, then Attach Existing (`link.svg`; a 480×520 dialog: a repository picker, defaulting to the
 space's repo: its first terminal's folder (as Herdr names spaces), else the agent's, else the space's folder, filled from `gh api user/repos` (first 100, most recently pushed), then that repo's open
 PRs with a filter; clicking one attaches it, PRs already shown are greyed. Herdr refuses `InputState.new` during
 render, so the inputs are made in the dialog's init). Create New, which `hc send`s the agent a message asking it to open one (on

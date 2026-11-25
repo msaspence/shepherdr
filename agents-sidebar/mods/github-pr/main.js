@@ -396,19 +396,17 @@ function tabView(t, prs, ctx, loading) {
         .child(sel.it.body(v))));
 }
 
-const removeButton = (t, pr, ctx) => stop(div().id(`rm-${pr.number}`).size(22).flex().flex_none().items_center().justify_center()
-  .rounded(5).cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Remove from this agent")
-  .on_click((_e, cx) => {
-    cx.stop_propagation();
-    const term = ctx.agent?.terminal;
-    if (!term) return;
-    const { state } = ctx;
-    cx.spawn(async (cx) => {
-      try { await setLink(term, pr.url, false); } catch (e) { state.linkError = String(e?.message ?? e); }
-      cx.notify();
-    });
-  })
-  .child(svg(I("x")).size(13)));
+// Unlinks the PR from this agent (it stays unlinked, even if it's the agent's branch's).
+const removeButton = (t, pr, ctx) => smallButton(t, `rm-${pr.number}`, "unlink", "Unlink from agent", (_e, cx) => {
+  cx.stop_propagation();
+  const term = ctx.agent?.terminal;
+  if (!term) return;
+  const { state } = ctx;
+  cx.spawn(async (cx) => {
+    try { await setLink(term, pr.url, false); } catch (e) { state.linkError = String(e?.message ?? e); }
+    cx.notify();
+  });
+});
 
 // A small bordered button with an icon, for the actions row.
 const smallButton = (t, id, iconName, label, onClick) => stop(h_flex().id(id).h(26).px(8).gap(6).flex_none().items_center()
@@ -444,7 +442,7 @@ function actions(t, ctx) {
   return v_flex().gap(4).px(4).pt(10)
     .child(h_flex().gap(6).items_center()
       .child(createButton(t, ctx))
-      .child(smallButton(t, "gh-attach-open", "git-merge", "Attach Existing", (_e, cx) => {
+      .child(smallButton(t, "gh-attach-open", "link", "Attach Existing", (_e, cx) => {
         try {
           const folders = spaceFolders(ctx);
           openOverlay({ mod: MOD, kind: "dialog", width: 480, height: 520,
