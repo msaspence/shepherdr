@@ -174,7 +174,7 @@ when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list repl
 In the PR tab the same rows expand in place below 560px, and from 560px are a list beside the selected row's
 content; nested lists and comments then expand in place. An agent's PRs are its branch's open PRs plus ones attached to it, minus ones removed from it (a removed
 branch PR isn't added back). Kept per agent terminal in `mods/github-pr/.links.json` (`{ "<terminal>": { "add":
-[url], "drop": [url] } }`, git-ignored). The PR tab's repo heading has an × to remove it. Under the PRs, in the Summary and the PR tab, two small
+[url], "drop": [url] } }`, git-ignored). The PR tab's repo heading has an × to remove it. Under the PRs in the PR tab (in the Summary only while there are none), two small
 buttons side by side: Attach PR (opens a field for a URL or number, its `InputState` made on the click: one
 can't be made during render) and Create PR, which `hc send`s the agent a message asking it to open one (on
 main/master: to branch first), then reads "Asked the agent". Agents can't change their PRs themselves yet:

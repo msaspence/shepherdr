@@ -448,7 +448,7 @@ const register = {
     if (!ctx.agent?.terminal && !e?.prs?.length) return null;
     return v_flex()
       .when(Boolean(e?.prs?.length), (el) => el.child(v_flex().gap(8).children(e.prs.map((pr) => summaryRows(t, pr, ctx)))))
-      .when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
+      .when(Boolean(ctx.agent?.terminal) && !e?.prs?.length, (el) => el.child(actions(t, ctx))); // the PR tab always has them
   },
   render: (ctx) => {
     const { t } = ctx;
