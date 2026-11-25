@@ -52,6 +52,14 @@ function title(tab, l) {
   const telling = live && live !== (l?.terminal ?? l?.address) && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
   return (tab.name === prog || !tab.named) && telling ? live : tab.name;
 }
+// A herdr-chat agent's pane is the chat's hidden host: focusing it leaves the chat to notice on its 400 ms tick,
+// move focus over and take the keyboard 150 ms later. Focus the chat and put the keyboard in its composer now.
+export function focusAgent(a) {
+  const chat = panes().find((p) => p.tab === a.tab && p.mod === "chat");
+  run("pane.focus", { pane: chat?.pane ?? a.pane });
+  if (chat) run("chat.focus"); // every chat copy gets it; only the shown tab's takes the keyboard
+}
+
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
@@ -183,18 +191,27 @@ export default class Agents extends View {
     run("terminal.peek", { terminal: addr });
   }
 
-  // Rename a row in place: Enter or leaving the field saves, Escape cancels; "" goes back to its automatic name.
+  // Rename a row in place: Enter, leaving the field or clicking outside it saves, Escape cancels; "" goes back to its automatic name.
   startRename(a, current, cx) {
     this.endRename(false, cx);
     this.renaming = a.address;
     this.renamePane = a.pane;
     const input = (this.renameInput = InputState.new({}));
     input.set_value(current ?? "");
-    input.set_selected_range({ start: 0, end: (current ?? "").length });
+    // Focus once the Input has rendered; select after focusing, which would otherwise move the cursor.
+    const grab = () => {
+      if (this.renameInput !== input) return;
+      input.focus();
+      input.set_selected_range({ start: 0, end: input.value().length });
+    };
+    // A double click's first click focused the row's pane, and that lands after the field has taken the
+    // keyboard; a chat (mods/chat refocus) then pulls it into its composer again at 150 and 500 ms. Take it
+    // back for a moment rather than treating those blurs as leaving the field. A click outside still saves.
+    const settleUntil = Date.now() + 800;
     input.on("submit", (_e, cx) => this.endRename(true, cx));
-    input.on("blur", (_e, cx) => this.endRename(true, cx));
-    input.focus();
+    input.on("blur", (_e, cx) => (Date.now() < settleUntil ? cx.timer.after(0, grab) : this.endRename(true, cx)));
     cx.notify();
+    cx.timer.after(0, grab);
   }
 
   endRename(save, cx) {
@@ -382,11 +399,11 @@ export default class Agents extends View {
           .cursor_pointer()
           .when(selected(a), (el) => el.bg(t.selected))
           .when(!selected(a), (el) => el.hover((s) => (sidebarIdle() ? s.bg(t.hover) : s)))
-          .on_click(() => run("pane.focus", { pane: a.pane }))
+          .on_click(() => focusAgent(a))
           .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
       }
       const when = this.since(a);
-      const idle = a.status === "idle" && !a.focused;
+      const idle = a.status === "idle" && !selected(a);
       const isPinned = a.pinned;
       const pin = div()
         .id(`pin-${a.address}`)
@@ -430,7 +447,8 @@ export default class Agents extends View {
         .on_click((e, cx) => {
           if (this.renaming === a.address) return;
           if (e.click_count === 2) this.startRename(a, name, cx);
-          else run("pane.focus", { pane: a.pane });
+          // Already active: refocusing would only make a chat pull the keyboard into its composer.
+          else if (!selected(a)) focusAgent(a);
         })
         .on_mouse_down("right", (_e, cx) => this.startRename(a, name, cx))
         .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)))
@@ -445,6 +463,8 @@ export default class Agents extends View {
         .child(this.renaming === a.address
           ? div().id(`rename-${a.address}`).flex_1().min_w(0)
             .on_key_down((e, cx) => { if (e.key === "escape") { cx.stop_propagation(); this.endRename(false, cx); } })
+            // Clicking somewhere that takes no focus never blurs the field, so a press outside saves too.
+            .on_mouse_down_out((_e, cx) => this.endRename(true, cx))
             .child(Input.new(this.renameInput).w_full().h(22).px(4).rounded(4).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground))
           : div().flex_1().min_w(0).truncate().text_color(idle ? t.muted : t.foreground).child(name))
         .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))

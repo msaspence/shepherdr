@@ -21,8 +21,21 @@ const KNOWN = "new-menu.agents";
 // and other machines' spaces, they run as terminals.
 const CHAT = new Set(["claude", "codex", "pi"]);
 const startAgent = (a, space) => CHAT.has(a.key) && !space?.machine && hasMod("new-chat")
-  ? run(`new-chat.${a.key}`)
+  ? (setShared(NEW_CHAT, { at: Date.now(), from: chatPanes() }), run(`new-chat.${a.key}`))
   : run("tab.new", { name: a.name, space: space?.id, argv: a.run, ...(space ? { folder: shared("space.dirs")?.[space.id] ?? space.folder } : {}) });
+// A new chat focuses its composer before Herdr hands its pane the keyboard, then retries 400 ms later.
+// The chat panes that existed before it started, so the main copy's render can hand it the keyboard on arrival.
+const NEW_CHAT = "agents-sidebar.new-chat";
+const chatPanes = () => panes().filter((p) => p.mod === "chat").map((p) => p.pane);
+function focusNewChat() {
+  const want = shared(NEW_CHAT);
+  if (!want) return;
+  const late = Date.now() - want.at > 5000; // it never came; don't grab some later chat
+  const fresh = !late && panes().find((p) => p.mod === "chat" && p.focused && !want.from.includes(p.pane));
+  if (!fresh && !late) return;
+  setShared(NEW_CHAT, null);
+  if (fresh) run("chat.focus");
+}
 const installed = () => (shared(KNOWN)?.[spaces().find((s) => s.active)?.machine ?? ""] ?? []).filter((a) => a.installed);
 
 async function loadItems() {
@@ -332,6 +345,7 @@ export default class SideAgents extends Agents {
   render(cx) {
     const t = theme();
     if (props()?.harness) return this.harnessMenu(t);
+    if (!props()?.peek) focusNewChat();
     const el = super.render(cx);
     // The rail draws the full panel under drawer.js's veil.
     const collapsed = false;
