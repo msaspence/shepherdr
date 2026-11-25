@@ -1,0 +1,86 @@
+{
+  "id": "root",
+  "type": "column",
+  "background": "canvas",
+  "terminal_padding": [
+    14,
+    12
+  ],
+  "titlebar": "none",
+  "traffic_lights": [
+    14,
+    13
+  ],
+  "resizable": false,
+  "children": [
+    {
+      "id": "titlebar",
+      "type": "block",
+      "size": {
+        "px": 38
+      },
+      "window_drag": true,
+      "content": {
+        "mod": "agents-sidebar-titlebar"
+      }
+    },
+    {
+      "id": "body",
+      "type": "row",
+      "divider": {
+        "width": 1,
+        "color": "border"
+      },
+      "children": [
+        {
+          "id": "sidebar",
+          "type": "column",
+          "size": {
+            "px": 268
+          },
+          "min": 46,
+          "max": 480,
+          "background": "chrome",
+          "children": [
+            {
+              "id": "spaces",
+              "type": "block",
+              "size": {
+                "weight": 1
+              },
+              "min": 40,
+              "content": {
+                "mod": "agents-sidebar-spaces"
+              }
+            },
+            {
+              "id": "agents",
+              "type": "block",
+              "size": {
+                "weight": 2
+              },
+              "min": 120,
+              "content": {
+                "mod": "agents-sidebar-agents"
+              }
+            }
+          ],
+          "resizable": false
+        },
+        {
+          "id": "main",
+          "type": "block",
+          "content": {
+            "tab": "active",
+            "pane": {
+              "gap": 8,
+              "background": "background"
+            }
+          }
+        }
+      ],
+      "resizable": false
+    }
+  ],
+  "preview": "layouts/agents-sidebar.svg"
+}

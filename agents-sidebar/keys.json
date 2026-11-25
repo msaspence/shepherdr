@@ -1,0 +1,5 @@
+{
+  "layout:agents-sidebar": {
+    "cmd-b": "agents-sidebar-agents.collapse"
+  }
+}
