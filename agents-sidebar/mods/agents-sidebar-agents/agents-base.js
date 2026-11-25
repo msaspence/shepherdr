@@ -4,7 +4,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { drawerFade, sidebarIdle } from "./drawer.js";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, props, window, layout, home } from "herdr";
+import { agents, terminals, panes, focused, spaces, run, exec, notify, theme, shared, setShared, setAgentOrder, props, window, layout, home } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -74,6 +74,46 @@ function duration(ms) {
 function icon(p, size, color) {
   if (!p?.icon) return null;
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
+}
+
+// Archiving an agent in a linked worktree commits what's left ("Clean up commit"), pushes the branch,
+// then removes the checkout and its local branch. Any failure stops there and says so, so nothing
+// unpushed is deleted. Another tab still working in the checkout keeps it (after the push).
+async function cleanUpWorktree(a) {
+  const cwd = panes().find((p) => p.pane === a.pane)?.cwd;
+  if (!cwd) return;
+  const on = spaces().find((s) => s.id === a.space)?.machine ?? null;
+  const git = async (dir, ...args) => {
+    const r = await exec("git", args, { cwd: dir, on, timeout: 120_000 });
+    if (r.code !== 0) throw new Error(`git ${args[0]}: ${(r.stderr || r.stdout).trim()}`);
+    return r.stdout.trim();
+  };
+  let top, common;
+  try {
+    top = await git(cwd, "rev-parse", "--show-toplevel");
+    const gitDir = await git(cwd, "rev-parse", "--path-format=absolute", "--git-dir");
+    common = await git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir");
+    if (gitDir === common) return; // the main checkout, not a worktree
+  } catch { return; } // not in git
+  try {
+    const branch = await git(top, "symbolic-ref", "--short", "HEAD");
+    if (await git(top, "status", "--porcelain")) {
+      await git(top, "add", "-A");
+      await git(top, "commit", "-m", "Clean up commit");
+    }
+    await git(top, "push", "-u", "origin", branch);
+    const inside = (p) => p.cwd === top || p.cwd?.startsWith(`${top}/`);
+    if (panes().some((p) => p.tab !== a.tab && p.terminal && inside(p))) {
+      notify({ title: "Pushed; worktree kept", body: `Another tab is still in ${top}.`, level: "info" });
+      return;
+    }
+    const main = common.replace(/\/\.git$/, "");
+    await git(main, "worktree", "remove", top);
+    await git(main, "branch", "-d", branch); // -d: refuses if somehow not on origin
+    notify({ title: "Worktree cleaned up", body: `Pushed ${branch} and removed ${top}.`, level: "success" });
+  } catch (e) {
+    notify({ title: "Worktree clean-up stopped", body: String(e.message ?? e), level: "error" });
+  }
 }
 
 export default class Agents extends View {
@@ -423,6 +463,7 @@ export default class Agents extends View {
           .on_click((_e, cx) => {
             cx.stop_propagation();
             run("tab.settle", { id: a.tab });
+            cleanUpWorktree(a);
           })
           .child(svg("mods/workspace-chrome/archive.svg").size(13))), true));
     };

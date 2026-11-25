@@ -40,7 +40,9 @@ padding), so the rail is the same rows with the labels hidden.
   parent's fold chevron shows how many and the most urgent state when folded.
 - **Agents:** click a row to show it in the work area. Double-click or right-click renames it in place
   (Enter or clicking away saves, Escape cancels, empty goes back to the automatic name). Archive settles
-  its tab: it leaves the list but keeps running, and comes back when it needs you. Hover shows a pin.
+  its tab: it leaves the list but keeps running, and comes back when it needs you. An agent in a linked git worktree also has its leftovers committed
+  ("Clean up commit"), its branch pushed to origin, then the worktree and local branch removed (kept
+  if another tab is still in it; any git failure stops there with an error toast). Hover shows a pin.
 - **New agent:** with one installed agent it starts it; with several, a menu picks one.
 - **Items:** an item with a `tab` opens its mod as a named tab in the active space, or selects that tab
   if it's already open; the item is highlighted while that tab is shown. An item with a `command` runs it.
