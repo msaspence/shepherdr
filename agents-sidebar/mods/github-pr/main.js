@@ -544,6 +544,9 @@ const prCount = (ctx) => {
   return (e?.prs?.length ?? 0) + loadingRows(ctx.t, ctx, e?.prs).length;
 };
 
+// Plural unless exactly one is attached (none attached lists the repo's PRs to pick from); singular while loading.
+const prLabel = (ctx, n = prCount(ctx)) => (n === 1 || (!n && !load(ctx)) ? "Pull Request" : "Pull Requests");
+
 // Where to look for the space's repo, in order: its first terminal's folder (as Herdr names spaces), the
 // agent's, then the space's own folder (which can be home).
 function spaceFolders(ctx) {
@@ -562,11 +565,8 @@ function showRepo(ctx, prs) {
 
 const register = {
   agentPrs, closePr, // the archive dialog's (agents-sidebar-agents/archive.js)
-  title: (ctx) => (prCount(ctx) > 1 ? "Pull Requests" : "Pull Request"),
-  header: (ctx) => {
-    const n = prCount(ctx);
-    return n > 1 ? "Pull Requests" : n || ctx.agent?.terminal || (ctx.cwd && !load(ctx)) ? "Pull Request" : null;
-  },
+  title: (ctx) => prLabel(ctx),
+  header: (ctx) => (prCount(ctx) || ctx.agent?.terminal || (ctx.cwd && !load(ctx)) ? prLabel(ctx) : null),
   summary: (ctx) => {
     const { t } = ctx;
     const e = load(ctx);

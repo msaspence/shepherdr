@@ -163,7 +163,7 @@ width, an object the panel keeps for this mod (UI state such as an open dropdown
 panel's tab, and the Summary's own row builder. Handlers in the returned elements get the panel's `cx`.
 The panel scans `mods/*/mod.json` for tab mods when it opens, so a newly installed one shows without the dialog.
 
-**github-pr** (`mods/github-pr`, tab "Pull Request", "Pull Requests" with more than one): the agent's branch's open pull request, from `gh pr list --head`
+**github-pr** (`mods/github-pr`, tab "Pull Request", "Pull Requests" with none or more than one): the agent's branch's open pull request, from `gh pr list --head`
 and one GraphQL query per PR (`data.js`, cached per folder and branch, refetched every 30s while shown).
 Summary lines under "Pull Request": `#n` (dim, in the icon's place) + title (click: the PR tab; GitHub icon: the
 browser), then indented 8px: the repo (`book-marked.svg`, owner/name; only when some PR shown isn't from the
