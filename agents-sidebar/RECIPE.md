@@ -172,7 +172,13 @@ comments grouped by author, each labelled file + lines, or the start of its text
 conflicts (worked out locally: `git fetch origin <base>` then `git merge-tree --write-tree` against HEAD, only
 when GitHub says the PR conflicts). Dropdowns are `Popover`s; a nested list replaces the menu with a back row.
 In the PR tab the same rows expand in place below 560px, and from 560px are a list beside the selected row's
-content; nested lists and comments then expand in place. Needs `gh` signed in. Avatars are round, check app logos
+content; nested lists and comments then expand in place. An agent's PRs are its branch's open PRs plus ones attached to it, minus ones removed from it (a removed
+branch PR isn't added back). Kept per agent terminal in `mods/github-pr/.links.json` (`{ "<terminal>": { "add":
+[url], "drop": [url] } }`, git-ignored, read every 3s). The PR tab's repo heading has an × to remove it, and an
+"Attach a PR" field (URL or number) at the bottom; agents use `mods/github-pr/pr-link add|remove|list <PR>`,
+which acts for `$HC_TERMINAL_ID`. Merged and closed attached PRs show as such. With none, on a branch other than
+main/master, Summary and the PR tab offer Create PR, which `hc send`s the agent a message asking it to open one.
+Needs `gh` signed in. Avatars are round, check app logos
 rounded 4px (`image(...).size(n).rounded(...)` directly; a rounded parent doesn't clip an image).
 
 **Files and Changes:** Herdr's shipped `files` and `changes` mods, nested in the panel with

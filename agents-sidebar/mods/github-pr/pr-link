@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Attach pull requests to, or remove them from, a Herdr agent's context panel (the github-pr mod).
+
+  pr-link add <PR>...      show these PRs for this agent, whatever its branch
+  pr-link remove <PR>...   stop showing them (a removed branch PR isn't added back automatically)
+  pr-link list             this agent's attached and removed PRs
+
+<PR> is a GitHub pull request URL, or a number (or #number) in the current folder's repo.
+The agent is the terminal in $HC_TERMINAL_ID (set in every Herdr terminal); --terminal tX picks another.
+The panel shows the change within a few seconds.
+"""
+import json, os, re, subprocess, sys, tempfile
+
+LINKS = os.path.join(os.path.dirname(os.path.realpath(__file__)), ".links.json")
+URL = re.compile(r"^https://github\.com/[^/]+/[^/]+/pull/\d+")
+
+
+def resolve(arg):
+    m = URL.match(arg)
+    if m:
+        return m.group(0)
+    if not re.fullmatch(r"#?\d+", arg):
+        sys.exit(f"pr-link: not a pull request URL or number: {arg}")
+    r = subprocess.run(["gh", "pr", "view", arg.lstrip("#"), "--json", "url", "-q", ".url"], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"pr-link: {r.stderr.strip() or 'gh pr view failed'}")
+    return r.stdout.strip()
+
+
+def main(argv):
+    terminal = os.environ.get("HC_TERMINAL_ID")
+    if "--terminal" in argv:
+        i = argv.index("--terminal")
+        terminal = argv[i + 1] if i + 1 < len(argv) else None
+        argv = argv[:i] + argv[i + 2:]
+    if not argv or argv[0] not in ("add", "remove", "list") or (argv[0] != "list" and len(argv) < 2):
+        sys.exit(__doc__.strip())
+    if not terminal:
+        sys.exit("pr-link: no agent terminal: run it in a Herdr terminal, or pass --terminal tX")
+
+    try:
+        with open(LINKS) as f:
+            links = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        links = {}
+    mine = links.get(terminal, {})
+    add, drop = list(mine.get("add", [])), list(mine.get("drop", []))
+
+    if argv[0] == "list":
+        print("attached:", *(add or ["none"]), sep="\n  ")
+        print("removed:", *(drop or ["none"]), sep="\n  ")
+        return
+
+    for url in map(resolve, argv[1:]):
+        if argv[0] == "add":
+            add = add + [url] if url not in add else add
+            drop = [u for u in drop if u != url]
+        else:
+            add = [u for u in add if u != url]
+            drop = drop + [url] if url not in drop else drop
+        print(f"{'attached' if argv[0] == 'add' else 'removed'} {url}")
+    links[terminal] = {"add": add, "drop": drop}
+
+    # Replaced atomically, so the panel never reads half a file.
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(LINKS), prefix=".links-")
+    with os.fdopen(fd, "w") as f:
+        json.dump(links, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, LINKS)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -1,9 +1,15 @@
-// github-pr's data: the open PRs for an agent's branch, from `gh` (one GraphQL query per PR), plus the merge
-// conflicts worked out locally with `git merge-tree`, since GitHub only says whether there are any.
+// github-pr's data: an agent's PRs, from `gh` (one GraphQL query per PR), plus the merge conflicts worked out
+// locally with `git merge-tree`, since GitHub only says whether there are any.
+// An agent's PRs are its branch's open PRs, plus ones attached to it, minus ones removed from it. Attachments and
+// removals are kept per agent terminal in .links.json, which the panel and the pr-link CLI (for agents) both edit:
+//   { "<terminal>": { "add": [url], "drop": [url] } }
+// A removed branch PR stays removed, even as the branch's PRs are fetched again.
 // Module scope is shared by every copy of the mod (each panel, the merge dialog), so one cache serves them all.
-import { appHome, checking, exec, home, setShared, shared } from "herdr";
+import { appHome, checking, exec, home, readTextFile, setShared, shared, writeTextFile } from "herdr";
 
 const POLL = 30000; // how often an agent's PRs are fetched again while a panel shows them
+const LINKS_POLL = 3000; // how often .links.json is read again, so a pr-link from an agent shows quickly
+const LINKS = () => `${appHome()}/mods/github-pr/.links.json`;
 const CACHE = "mods/github-pr/.cache"; // hidden, so downloads don't hot-reload the mod
 export const METHOD_KEY = "agents-sidebar.github-pr-method"; // the last merge method picked
 
@@ -29,17 +35,57 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!){
 }`;
 
 // The files `git merge-tree` can't merge, each with its conflict blocks' line ranges ("path\t12-20,40-52").
+// $1 the base branch, $2 the head: HEAD for the agent's own branch, else a branch fetched from origin.
 const CONFLICTS_SH = `
 git fetch -q origin "$1" 2>/dev/null
-out=$(git merge-tree --write-tree --name-only --no-messages HEAD "origin/$1"); [ $? -eq 1 ] || exit 0
+head=HEAD; if [ "$2" != HEAD ]; then git fetch -q origin "$2" 2>/dev/null; head="origin/$2"; fi
+out=$(git merge-tree --write-tree --name-only --no-messages "$head" "origin/$1"); [ $? -eq 1 ] || exit 0
 tree=$(printf '%s\\n' "$out" | head -1)
 printf '%s\\n' "$out" | tail -n +2 | awk 'NF && !seen[$0]++' | while IFS= read -r f; do
   lines=$(git cat-file -p "$tree:$f" 2>/dev/null | awk '/^<<<<<<< /{s=NR} /^>>>>>>> /{if(s){printf "%s%d-%d", (n++?",":""), s, NR; s=0}}')
   printf '%s\\t%s\\n' "$f" "$lines"
 done`;
 
-const entries = new Map(); // "cwd\nbranch" -> { at, busy, prs, error }
+const entries = new Map(); // "terminal\ncwd\nbranch" -> { at, busy, prs, error }
 const avatars = new Set(); // cached avatar files, by name
+let links = {}, linksText = null, linksAt = 0;
+
+// Reads .links.json; true (and every answer stale) when it changed.
+async function readLinks() {
+  const text = (await readTextFile(LINKS()).catch(() => null)) ?? null;
+  if (text === linksText) return false;
+  linksText = text;
+  try { links = JSON.parse(text ?? "{}") ?? {}; } catch { links = {}; }
+  invalidate();
+  return true;
+}
+const linksFor = (terminal) => ({ add: links[terminal]?.add ?? [], drop: links[terminal]?.drop ?? [] });
+
+// Attaches a PR to an agent (on), or removes it (off, which also keeps its branch's PR from coming back).
+export async function setLink(terminal, url, on) {
+  for (let tries = 0; ; tries++) {
+    await readLinks();
+    const l = linksFor(terminal);
+    const next = on ? { add: [...new Set([...l.add, url])], drop: l.drop.filter((u) => u !== url) }
+      : { add: l.add.filter((u) => u !== url), drop: [...new Set([...l.drop, url])] };
+    const text = JSON.stringify({ ...links, [terminal]: next }, null, 2) + "\n";
+    try {
+      await writeTextFile(LINKS(), text, linksText);
+      await readLinks();
+      return;
+    } catch (e) {
+      if (tries >= 2) throw e; // changed under us (pr-link): read it again and retry
+    }
+  }
+}
+
+// A PR's URL from what someone typed: a URL, or a number (or #number) in the agent's repo.
+export async function resolvePr(cwd, text) {
+  const s = text.trim();
+  if (/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(s)) return s.match(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/)[0];
+  if (!/^#?\d+$/.test(s)) throw new Error("Enter a pull request URL or number");
+  return (await gh(["pr", "view", s.replace("#", ""), "--json", "url", "-q", ".url"], cwd)).trim();
+}
 
 async function gh(args, cwd) {
   const r = await exec("gh", args, { cwd: cwd ?? home(), timeout: 30000 });
@@ -51,15 +97,20 @@ async function gh(args, cwd) {
 // Called from render: the fetch runs on the panel's cx and redraws it when done.
 export function load(ctx) {
   const { cwd, branch, cx } = ctx;
-  if (!cwd || !branch) return null;
-  const key = `${cwd}\n${branch}`;
+  const terminal = ctx.agent?.terminal ?? null;
+  if (!cwd) return null;
+  if (!checking() && Date.now() - linksAt > LINKS_POLL) {
+    linksAt = Date.now();
+    cx.spawn(async (cx) => { if (await readLinks()) cx.notify(); });
+  }
+  const key = `${terminal}\n${cwd}\n${branch}`;
   let e = entries.get(key);
   if (!e) entries.set(key, (e = { at: 0, busy: false, prs: null, error: null }));
   if (!e.busy && !checking() && Date.now() - e.at > POLL) {
     e.busy = true;
     cx.spawn(async (cx) => {
       try {
-        e.prs = await fetchPrs(cwd, branch);
+        e.prs = await fetchPrs(cwd, branch, terminal);
         e.error = null;
       } catch (err) {
         e.error = String(err?.message ?? err);
@@ -77,11 +128,19 @@ export function invalidate() {
   for (const e of entries.values()) e.at = 1;
 }
 
-async function fetchPrs(cwd, branch) {
-  const list = JSON.parse(await gh(["pr", "list", "--head", branch, "--state", "open", "--json", "number,url"], cwd));
+async function fetchPrs(cwd, branch, terminal) {
+  if (linksText === null) await readLinks();
+  const l = linksFor(terminal);
+  let mine = [];
+  try {
+    if (branch) mine = JSON.parse(await gh(["pr", "list", "--head", branch, "--state", "open", "--json", "url"], cwd)).map((p) => p.url);
+  } catch (e) {
+    if (!l.add.length) throw e; // not a GitHub repo, say; attached PRs can still show
+  }
+  const urls = [...new Set([...mine.filter((u) => !l.drop.includes(u)), ...l.add])];
   const prs = [];
-  for (const { number, url } of list) {
-    const [, owner, repo] = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\//) ?? [];
+  for (const url of urls) {
+    const [, owner, repo, number] = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/) ?? [];
     if (!owner) continue;
     // A field this account can't read (branch protection, say) comes back null with an error beside the data.
     const r = await exec("gh", ["api", "graphql", "-f", `query=${QUERY}`, "-f", `owner=${owner}`, "-f", `repo=${repo}`, "-F", `number=${number}`], { cwd: home(), timeout: 30000 });
@@ -89,7 +148,8 @@ async function fetchPrs(cwd, branch) {
     try { data = JSON.parse(r.stdout).data; } catch {}
     if (!data?.repository?.pullRequest) throw new Error(r.stderr.trim().split("\n").pop() || `Couldn't load #${number}`);
     const pr = normalize(owner, repo, data.repository);
-    if (pr.mergeable === "CONFLICTING") pr.conflicts = await conflicts(cwd, pr.base);
+    pr.auto = mine.includes(url); // from the agent's branch, not attached
+    if (pr.mergeable === "CONFLICTING") pr.conflicts = await conflicts(cwd, pr.base, pr.head === branch ? "HEAD" : pr.head);
     prs.push(pr);
   }
   await Promise.all(prs.flatMap((pr) => [...pr.reviews, ...pr.comments, ...pr.checks]).map((x) => cacheAvatar(x.avatar)));
@@ -142,7 +202,7 @@ export function normalize(owner, repo, r) {
   }
 
   return {
-    owner, repo, number: p.number, title: p.title, url: p.url, draft: p.isDraft,
+    owner, repo, number: p.number, title: p.title, url: p.url, draft: p.isDraft, state: p.state,
     mergeable: p.mergeable, mergeState: p.mergeStateStatus, decision: p.reviewDecision,
     additions: p.additions, deletions: p.deletions, files: p.changedFiles,
     base: p.baseRefName, head: p.headRefName, headRepo: p.headRepository?.nameWithOwner ?? null,
@@ -152,9 +212,9 @@ export function normalize(owner, repo, r) {
   };
 }
 
-async function conflicts(cwd, base) {
+async function conflicts(cwd, base, head) {
   try {
-    const r = await exec("sh", ["-c", CONFLICTS_SH, "_", base], { cwd, timeout: 30000 });
+    const r = await exec("sh", ["-c", CONFLICTS_SH, "_", base, head], { cwd, timeout: 30000 });
     if (r.code !== 0) return null;
     return r.stdout.split("\n").filter(Boolean).map((l) => {
       const [path, ranges = ""] = l.split("\t");
@@ -180,12 +240,13 @@ export function summarize(pr) {
   const conflicting = pr.mergeable === "CONFLICTING";
   const changesRequested = pr.decision === "CHANGES_REQUESTED" || reviews.changes > 0;
   const failing = checks.failed > 0;
-  const ready = !pr.draft && !conflicting && ["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(pr.mergeState);
+  const open = pr.state === "OPEN";
+  const ready = open && !pr.draft && !conflicting && ["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(pr.mergeState);
   const problems = [conflicting && "Merge conflicts", changesRequested && "Changes requested", failing && "Failing checks"].filter(Boolean);
-  const text = ready ? "Ready to merge" : problems.length > 1 ? "Multiple problems" : problems[0]
+  const text = !open ? (pr.state === "MERGED" ? "Merged" : "Closed") : ready ? "Ready to merge" : problems.length > 1 ? "Multiple problems" : problems[0]
     ?? (pr.draft ? "Draft" : checks.running ? "Checks running" : pr.mergeState === "BEHIND" ? "Out of date"
       : pr.decision === "REVIEW_REQUIRED" ? "Review required" : pr.mergeState === "UNKNOWN" ? "Checking mergeability" : "Blocked");
-  return { checks, reviews, conflicting, changesRequested, failing, ready, text };
+  return { checks, reviews, conflicting, changesRequested, failing, ready, open, text };
 }
 
 // Avatars and check app logos, downloaded once; avatarPath is null until the file exists.

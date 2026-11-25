@@ -4,9 +4,9 @@
 // Copies: the merge dialog (props.variant "merge"), a review comment's popover (props.variant "comment"), and the
 // panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
-import { h_flex, v_flex, Popover, TextView } from "gpui-base";
-import { closeOverlay, openOverlay, props, theme } from "herdr";
-import { avatarPath, load, merge, mergeMethod, setAutoMerge, summarize } from "./data.js";
+import { h_flex, v_flex, Input, InputState, Popover, TextView } from "gpui-base";
+import { closeOverlay, hc, openOverlay, props, theme } from "herdr";
+import { avatarPath, load, merge, mergeMethod, resolvePr, setAutoMerge, setLink, summarize } from "./data.js";
 
 const MOD = "github-pr";
 const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
@@ -59,6 +59,7 @@ function ring(t, segs, size = 14) {
 // The status row's indicator, first that applies: conflicts, changes requested, failing checks, ready.
 function indicator(t, pr, s) {
   const c = C(t);
+  if (!s.open) return pr.state === "MERGED" ? icon("git-merge", t.ansi5) : icon("circle-x", c.grey);
   if (s.conflicting) return ring(t, [[1, c.red]]);
   if (s.changesRequested) return ring(t, [[s.reviews.approved, c.green], [s.reviews.changes, c.red], [s.reviews.pending, c.grey]]);
   if (s.failing) return ring(t, [[s.checks.passed, c.green], [s.checks.running, c.gold], [s.checks.failed, c.red], [s.checks.missing, c.grey]]);
@@ -214,6 +215,7 @@ function blockers(t, pr, s) {
 
 function statusMenu(v, pr, s) {
   const { t, state } = v;
+  if (!s.open) return note(t, pr.state === "MERGED" ? "This pull request was merged" : "This pull request was closed");
   const box = (on) => div().size(14).flex().flex_none().items_center().justify_center().rounded(4).border_1()
     .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent).text_color(t.accent_foreground).child(icon("check", t.accent_foreground, 11)));
   const busy = state.autoBusy === pr.url;
@@ -323,8 +325,10 @@ function tabRows(t, pr, ctx) {
   const s = summarize(pr);
   const { state } = ctx;
   const v = { t, inline: true, state, pages: {} };
-  // The repo row is the tab's heading here: nothing to open (its GitHub button still works).
-  const list = items(t, pr, s, ctx).map((it) => (it.key === "repo" ? { ...it, body: null, click: null } : it));
+  // The repo row is the tab's heading here: nothing to open; its GitHub button, and one to remove the PR from
+  // this agent (it stays removed, even if it's the agent's branch's).
+  const list = items(t, pr, s, ctx).map((it) => (it.key === "repo"
+    ? { ...it, body: null, click: null, right: [...it.right, removeButton(t, pr, ctx)] } : it));
   const wide = ctx.width >= WIDE;
   const key = (it) => `pr${pr.number}-${it.key}`;
   if (!wide) {
@@ -346,25 +350,111 @@ function tabRows(t, pr, ctx) {
       .child(sel.body(v)));
 }
 
+const removeButton = (t, pr, ctx) => stop(div().id(`rm-${pr.number}`).size(22).flex().flex_none().items_center().justify_center()
+  .rounded(5).cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Remove from this agent")
+  .on_click((_e, cx) => {
+    cx.stop_propagation();
+    const term = ctx.agent?.terminal;
+    if (!term) return;
+    const { state } = ctx;
+    cx.spawn(async (cx) => {
+      try { await setLink(term, pr.url, false); } catch (e) { state.linkError = String(e?.message ?? e); }
+      cx.notify();
+    });
+  })
+  .child(svg(I("x")).size(13)));
+
+// Whether the agent could open a PR: on a branch, and not the usual default ones.
+const canCreate = (ctx) => Boolean(ctx.branch && ctx.agent?.terminal && !["main", "master"].includes(ctx.branch));
+
+// Asks the agent (its terminal) to open a PR for its branch.
+function createButton(t, ctx) {
+  const { state } = ctx;
+  const sent = state.askedFor === `${ctx.agent.terminal}\n${ctx.branch}`;
+  return stop(div().id("gh-create-pr").h(24).px(10).flex().flex_none().items_center().rounded(6).text_size(12)
+    .when(!sent, (el) => el.cursor_pointer().bg(t.solid).text_color(t.solid_foreground))
+    .when(sent, (el) => el.border_1().border_color(t.border).text_color(t.dim))
+    .tooltip(sent ? "Sent to the agent" : "Ask the agent to open a pull request")
+    .on_click((_e, cx) => {
+      if (sent) return;
+      state.askedFor = `${ctx.agent.terminal}\n${ctx.branch}`;
+      const text = `Open a pull request for this branch (${ctx.branch}): commit and push any outstanding work, then create it with gh pr create.`;
+      cx.spawn(async (cx) => {
+        const r = await hc(["send", ctx.agent.terminal, text]).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+        if (r.code !== 0) { state.askedFor = null; state.linkError = r.stderr?.trim() || "Couldn't reach the agent"; }
+        cx.notify();
+      });
+      cx.notify();
+    })
+    .child(sent ? "Asked" : "Create PR"));
+}
+
+// The PR tab's field for attaching any PR (a URL, or a number in the agent's repo) to this agent.
+function attachField(t, ctx) {
+  const { state } = ctx;
+  if (!state.input) {
+    state.input = InputState.new({ placeholder: "Attach a PR: URL or number" });
+    state.input.on("submit", (_e, cx) => attach(ctx, cx));
+  }
+  return v_flex().gap(4).pt(10).mt(6).border_t_1().border_color(t.border)
+    .child(h_flex().gap(6).items_center()
+      .child(Input.new(state.input).flex_1().h(28).px(8).rounded(6).border_1().border_color(t.input).bg(t.background).text_size(12.5))
+      .child(div().id("gh-attach").h(28).px(10).flex().flex_none().items_center().rounded(6).text_size(12)
+        .border_1().border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => attach(ctx, cx)).child(state.attaching ? "Attaching…" : "Attach")))
+    .when(Boolean(state.linkError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.linkError)));
+}
+
+function attach(ctx, cx) {
+  const { state } = ctx;
+  const text = state.input.value();
+  const term = ctx.agent?.terminal;
+  if (!text.trim() || !term || state.attaching) return;
+  state.attaching = true;
+  state.linkError = null;
+  cx.spawn(async (cx) => {
+    try {
+      await setLink(term, await resolvePr(ctx.cwd, text), true);
+      state.input.set_value("");
+    } catch (e) {
+      state.linkError = String(e?.message ?? e);
+    }
+    state.attaching = false;
+    cx.notify();
+  });
+  cx.notify();
+}
+
 const register = {
   header: (ctx) => {
-    const n = load(ctx)?.prs?.length ?? 0;
-    return n ? (n > 1 ? "Pull Requests" : "Pull Request") : null;
+    const e = load(ctx);
+    const n = e?.prs?.length ?? 0;
+    return n > 1 ? "Pull Requests" : n || (e && canCreate(ctx)) ? "Pull Request" : null;
   },
   summary: (ctx) => {
+    const { t } = ctx;
     const e = load(ctx);
-    if (!e?.prs?.length) return null;
-    return v_flex().gap(8).children(e.prs.map((pr) => summaryRows(ctx.t, pr, ctx)));
+    if (!e) return null;
+    if (!e.prs?.length) {
+      if (!canCreate(ctx)) return null;
+      return h_flex().id("ghpr-none").h(30).px(4).gap(8).items_center().flex_none()
+        .child(icon("git-pull-request", t.dim)).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child("No pull request"))
+        .child(createButton(t, ctx));
+    }
+    return v_flex().gap(8).children(e.prs.map((pr) => summaryRows(t, pr, ctx)));
   },
   render: (ctx) => {
     const { t } = ctx;
     const e = load(ctx);
     const msg = (text, color = t.muted) => div().px(4).py(6).text_size(12.5).text_color(color).child(text);
-    if (!ctx.branch) return msg("Not a git repository");
+    if (!ctx.cwd) return msg("No folder");
     if (!e) return msg("Loading…");
-    if (e.error && !e.prs) return msg(e.error, t.blocked);
-    if (!e.prs?.length) return msg(`No open pull request for ${ctx.branch}`);
-    return v_flex().gap(12).children(e.prs.map((pr) => tabRows(t, pr, ctx)));
+    const body = e.error && !e.prs ? msg(e.error, t.blocked)
+      : !e.prs?.length ? h_flex().gap(8).items_center().px(4).py(4)
+        .child(div().flex_1().min_w(0).text_size(12.5).text_color(t.muted).child(ctx.branch ? `No open pull request for ${ctx.branch}` : "No pull request"))
+        .when(canCreate(ctx), (el) => el.child(createButton(t, ctx)))
+      : v_flex().gap(12).children(e.prs.map((pr) => tabRows(t, pr, ctx)));
+    return v_flex().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(attachField(t, ctx)));
   },
 };
 (globalThis.contextPanel ??= {})[MOD] = register;
