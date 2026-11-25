@@ -44,19 +44,25 @@ function ring(t, segs, size = 14) {
   // Lucide's radius (10 on a 24 grid), so it lines up with the circle icons in the other rows; a 2px stroke.
   const w = 2, r = size * 10 / 24, c = size / 2;
   const shown = segs.filter(([v]) => v);
-  // Arcs butt up like a donut chart. Every arc gets at least `min`, so 1 running check of 20 still shows;
-  // the rest is shared by count.
-  const min = shown.length > 1 ? 0.4 : 0, spare = 2 * Math.PI - min * shown.length;
-  const at = (a) => [c + r * Math.sin(a), c - r * Math.cos(a)];
+  const gap = shown.length > 1 ? 0.3 : 0; // radians between arcs
+  // Every arc gets at least `min` of visible ring, so 1 running check of 20 still shows; the rest is shared by count.
+  const min = shown.length > 1 ? gap + 0.4 : 0, spare = 2 * Math.PI - min * shown.length;
+  const at = (a, rr) => [c + rr * Math.sin(a), c - rr * Math.cos(a)];
+  const ro = r + w / 2, ri = r - w / 2;
+  // Arc from a to b at radius rr, in pieces of at most a quarter turn: the renderer finds each piece's centre from
+  // its ends, which drifts visibly when they're nearly opposite (a half-turn piece).
+  const arc = (p, a, b, rr) => {
+    const dir = Math.sign(b - a);
+    for (let x = a; dir * (b - x) > 1e-6;) { x = dir > 0 ? Math.min(b, x + Math.PI / 2) : Math.max(b, x - Math.PI / 2); p = p.arc_to(rr, rr, 0, false, dir > 0, ...at(x, rr)); }
+    return p;
+  };
   let a = 0;
   return box.children(shown.map(([v, color]) => {
-    const span = min + (v / total) * spare, from = a, to = a + span;
+    const span = min + (v / total) * spare, from = a + gap / 2, to = a + span - gap / 2;
     a += span;
-    // In pieces of at most a quarter turn: a full circle (one arc) still draws, and the renderer finds each
-    // piece's centre from its ends, which drifts visibly when they're nearly opposite (a half-turn piece).
-    let b = PathBuilder.stroke(w).move_to(...at(from));
-    for (let x = from; x < to - 1e-6;) { x = Math.min(to, x + Math.PI / 2); b = b.arc_to(r, r, 0, false, true, ...at(x)); }
-    return div().absolute().inset_0().child(window.paint_path(b.build(), color));
+    // A filled ring sector (outer arc, in along the radius, inner arc back), so each end points at the centre.
+    const p = arc(arc(PathBuilder.fill().move_to(...at(from, ro)), from, to, ro).line_to(...at(to, ri)), to, from, ri).close();
+    return div().absolute().inset_0().child(window.paint_path(p.build(), color));
   }));
 }
 
