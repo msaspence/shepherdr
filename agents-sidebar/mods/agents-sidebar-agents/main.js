@@ -91,7 +91,7 @@ function openDrawer(key = "sidebar-drawer") {
   const { size, min, max, background, ...tree } = drawerTree(peekCopy(side));
   const bar = findNode(layout(), "titlebar");
   const layoutTree = { id: "peek-root", type: "column", children: [
-    { id: "peek-titlebar", type: "block", size: bar?.size ?? { px: 38 }, content: { mod: "agents-sidebar-titlebar", props: { peek: true } } },
+    { id: "peek-titlebar", type: "block", size: bar?.size ?? { px: 42 }, content: { mod: "agents-sidebar-titlebar", props: { peek: true } } },
     tree,
   ] };
   return openOverlay({ kind: "window", key, frame: "none", at: { x: 0, y: 0 },
@@ -184,7 +184,7 @@ export default class SideAgents extends Agents {
       return;
     }
     const split = e.bounds.y / zoom; // this block's top: the spaces/agents divider
-    const bar = findNode(layout(), "titlebar")?.size?.px ?? 38;
+    const bar = findNode(layout(), "titlebar")?.size?.px ?? 42;
     if (!railed() || e.pressed_button || x > RAIL - 6 || y < bar || Math.abs(y - split) < 6) return;
     this.openDrawerNow();
   }
@@ -213,7 +213,7 @@ export default class SideAgents extends Agents {
   // (SPLIT_OVERLAP, under SPLIT_FRAME), so there's never a frame without a drawer. The window the press
   // started in stays open underneath until the drag ends: closing it ends the drag's pointer events.
   splitTo(y, cx, force = false) {
-    const bar = findNode(layout(), "titlebar")?.size?.px ?? 38;
+    const bar = findNode(layout(), "titlebar")?.size?.px ?? 42;
     const h = Math.max(SPLIT_MIN, Math.round(y - bar));
     const now = Date.now();
     if (!force && (h === this.splitH || now - (this.splitAt ?? 0) < SPLIT_FRAME)) return;

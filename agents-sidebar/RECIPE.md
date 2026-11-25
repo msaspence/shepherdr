@@ -11,7 +11,7 @@ of the rail with its labels fading in, and closes when the pointer leaves.
 
 Top to bottom, left to right:
 
-- **Title bar** (38px, the full window width, the theme's `chrome` with a 1px `border` line under it):
+- **Title bar** (42px, the full window width, the theme's `chrome` with a 1px `border` line under it):
   room for the macOS traffic lights, then a sidebar toggle (the `workspace-chrome/sidebar.svg` icon,
   26px hit area, `muted`). Dragging the bar moves the window.
 - **Sidebar** (268px by default, 160–480px expanded, 46px collapsed; `chrome` background; a 1px `border`
@@ -63,7 +63,7 @@ padding), so the rail is the same rows with the labels hidden.
 **Layout** (`layouts/agents-sidebar.json`): a `column` root with `"titlebar": "none"` and
 `"traffic_lights": [14, 13]`:
 
-- `titlebar`: block, 38px, `window_drag`, mod `agents-sidebar-titlebar`.
+- `titlebar`: block, 42px, `window_drag`, mod `agents-sidebar-titlebar`.
 - `body`: row, `"resizable": false`, a 1px `border` divider.
   - `sidebar`: column, 268px (min 46, max 480), `chrome`, `"resizable": false`, no divider.
     - `spaces`: block, weight 1, min 40, mod `agents-sidebar-spaces`.

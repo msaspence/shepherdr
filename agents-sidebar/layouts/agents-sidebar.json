@@ -6,6 +6,20 @@
     14,
     12
   ],
+  "terminal_menu": "chat-menu",
+  "floating": [
+    {
+      "id": "new-chat-commands",
+      "content": {
+        "mod": "new-chat",
+        "props": {
+          "role": "commands"
+        }
+      },
+      "edge": "bottom",
+      "align": "start"
+    }
+  ],
   "titlebar": "none",
   "traffic_lights": [
     14,
@@ -17,7 +31,7 @@
       "id": "titlebar",
       "type": "block",
       "size": {
-        "px": 38
+        "px": 42
       },
       "window_drag": true,
       "content": {
