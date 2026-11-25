@@ -29,6 +29,16 @@ Top to bottom, left to right:
     "New agent" row with a +.
   - **Footer** (a `border` line above): Settings and Add machine.
 - **Work area:** the active tab, unframed. With herdr-chat, a chat tab is the chat itself.
+- **Context panel** (optional, per agent): a 340px pane on the right of the agent's tab, opened from the
+  title bar's panel button (`workspace-chrome/panel-right.svg`, right of the Open In icons). Tabs across
+  the top (36px, `selected` behind the active one, no line under them); once the pane is narrower than
+  the tabs' own width, a dropdown instead, switching live as it's resized. `chrome` background, like the
+  sidebar, with a 1px `border` line on its left edge.
+  The Summary tab: the agent's folder (`folder.svg`, `~` for home) with an Open In button on the right
+  (opens opens-in's menu for that folder), and its git branch (`git-branch.svg`) with the change from
+  the base branch on the right, `+added` in `ansi2` and `-removed` in `ansi1` (`dim` when 0). Files and
+  Changes tabs are Herdr's own Files and Changes panels, on by default. Other mods can add their own tabs, and lines under these two (see
+  Registering a panel tab).
 
 Every row keeps its icon in the same 14px column 16px from the sidebar's edge (8px list margin, 8px row
 padding), so the rail is the same rows with the labels hidden.
@@ -75,12 +85,14 @@ padding), so the rail is the same rows with the labels hidden.
     - `titlebar-opens-in`: block, 200px, mod [`opens-in`](../opens-in/) with props
       `{ "variant": "horizontal-icons", "path_shared": "agents-sidebar.active-cwd" }`: the person's chosen
       apps, opening the selected agent's folder.
+    - `titlebar-context-panel`: block, 46px, mod `agents-sidebar-context-panel` with props `{ "variant": "toggle" }`.
   - `titlebar-rule`: row, 1px, `border` background, no children: the bar's bottom line.
 - `body`: row, `"resizable": false`, a 1px `border` divider.
   - `sidebar`: column, 268px (min 46, max 480), `chrome`, `"resizable": false`, no divider.
     - `spaces`: block, weight 1, min 40, mod `agents-sidebar-spaces`.
     - `agents`: block, weight 2, min 120, mod `agents-sidebar-agents`.
-  - `main`: block, `{ "tab": "active" }` with pane frames `{ "gap": 8, "background": "background" }`.
+  - `main`: block, `{ "tab": "active" }` with pane frames `{ "gap": 0, "background": "background" }`
+    (no gap, so the context panel's own edge line is the only thing between it and the agent).
 
 Both resizable flags are off: the mods draw and drive the sidebar edge and the spaces/agents split
 themselves (Herdr's dividers can't snap, and can't be dragged inside a window overlay).
@@ -94,6 +106,14 @@ themselves (Herdr's dividers can't snap, and can't be dragged inside a window ov
 - `agents-sidebar-agents`: the agents panel (`agents-base.js`, started from Herdr's shipped `agents` mod)
   and `main.js`, which adds the item slot, New agent, the footer, and runs the sidebar: the collapse
   toggle, the drawer, and both drags.
+- `agents-sidebar-context-panel`: the context panel (`main.js`; `tabs.js` the tab registry and loader; `settings.js`
+  the choose-tabs dialog), a mod pane split right of the tab's agent pane
+  (`pane.split { direction: "right", pane, mod, props: { tab } }`), so every agent tab has its own;
+  the toggle closes it with `pane.close`. On its first size it shrinks itself to 340px with
+  `pane.resize { direction: "right" }`. The tab strip measures its own width with `on_size_change`
+  (shown until it's measured) and the panel compares it to its own width on every resize. Every 5s it runs `git` in the agent's folder: the base is
+  `origin/HEAD`, else `main` or `master`; the change is `git diff --shortstat $(git merge-base HEAD base)`
+  (working tree included, untracked files not).
 - `drawer.js`, identical in the spaces and agents folders (a mod imports only its own files): the label
   fades (`drawerFade`), the drawer's grow animation, the edge and split handles, the drag cursor cover,
   and which optional mods are installed.
@@ -123,6 +143,38 @@ shipped `menu`; with `new-chat`, New agent starts Claude, Codex and Pi as chats;
 the chat. To get herdr-chat's terminal menu and its new-chat commands in this layout, add to the root:
 `"terminal_menu": "chat-menu"` and
 `"floating": [{ "id": "new-chat-commands", "content": { "mod": "new-chat", "props": { "role": "commands" } }, "edge": "bottom", "align": "start" }]`.
+
+**Registering a panel tab** from another mod. Mods can't import each other or draw inside each other,
+but they share one JS runtime. A tab mod offers itself in its `mod.json` with
+`"context-panel": { "title": "My tab" }` and registers from its `main.js` module code:
+
+```js
+(globalThis.contextPanel ??= {})["my-mod"] = {
+  render: (ctx) => div().child("…"),         // the tab's content (optional)
+  summary: (ctx) => ctx.line("my-line", "mods/workspace-chrome/folder.svg", "text", rightEl), // optional
+};
+```
+
+`ctx` is `{ t, agent, cwd, branch, line }`: the theme, the agent's pane (`panes()` entry), its folder and
+branch, and the Summary's own row builder. Handlers in the returned elements get the panel's `cx`.
+
+**Files and Changes:** Herdr's shipped `files` and `changes` mods, nested in the panel with
+`cx.new(ViewClass, {})` the first time their tab is shown (each panel keeps its own copy, which follows the
+focused pane's folder as it does in Herdr's layouts). A mod can import only its own files, so the panel copies
+each one's `main.js` (a single file importing only `gpui-kit`, `gpui-base` and `herdr`) into its own folder as
+`herdr-files.js` / `herdr-changes.js` (git-ignored) with `readTextFile` / `writeTextFile`, rewriting it when
+Herdr's differs, then `import()`s it. A Herdr update shows once the panel mod reloads.
+
+**Choosing tabs:** the palette's "Context panel: choose tabs" (`mod.open { name: "agents-sidebar-context-panel" }`,
+a 440×420 dialog like opens-in's) reads every `mods/*/mod.json` for `context-panel` and lists Summary (built
+in, always on), Files and Changes ("From Herdr") and each tab mod, each with a switch and a drag grip. New mods start on; the list and order are
+`shared("agents-sidebar.context-panel-tabs")` (`[{ id, title, on }]`). A turned-off mod adds neither its tab nor
+its Summary lines. A mod's code only runs once a copy of it is shown, so the panel (when it opens) and the
+dialog (when it opens, or a mod is switched on) open each enabled mod that hasn't registered, or whose
+`main.js` changed, in a 1px frameless window (`props["context-panel"] = "load"`; the mod draws an empty
+`div()` there), closed 500ms later, then bump `agents-sidebar.context-panel-loaded` so every panel redraws. There's
+no background scan: a new tab mod appears once the dialog has been opened, and an edited one reloads when
+the dialog or a new panel opens. A tab or line that throws shows its error in its own place.
 
 ## Watch out
 

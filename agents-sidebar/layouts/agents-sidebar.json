@@ -68,6 +68,19 @@
                   "path_shared": "agents-sidebar.active-cwd"
                 }
               }
+            },
+            {
+              "id": "titlebar-context-panel",
+              "type": "block",
+              "size": {
+                "px": 46
+              },
+              "content": {
+                "mod": "agents-sidebar-context-panel",
+                "props": {
+                  "variant": "toggle"
+                }
+              }
             }
           ]
         },
@@ -131,7 +144,7 @@
           "content": {
             "tab": "active",
             "pane": {
-              "gap": 8,
+              "gap": 0,
               "background": "background"
             }
           }

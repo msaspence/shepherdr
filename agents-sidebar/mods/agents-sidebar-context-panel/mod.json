@@ -1,0 +1,8 @@
+{
+  "place": "none",
+  "title": "Agents sidebar: panel",
+  "overlay": { "kind": "dialog", "width": 440, "height": 420 },
+  "palette": [
+    { "title": "Context panel: choose tabs", "command": "mod.open", "args": { "name": "agents-sidebar-context-panel" }, "words": "context panel tabs settings order" }
+  ]
+}

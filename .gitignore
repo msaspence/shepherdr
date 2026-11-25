@@ -4,3 +4,6 @@ gpui-kit.d.ts
 herdr.d.ts
 .DS_Store
 .cache/
+
+# The context panel copies Herdr's Files and Changes panels in at run time
+agents-sidebar/mods/agents-sidebar-context-panel/herdr-*.js
