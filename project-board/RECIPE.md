@@ -53,6 +53,20 @@ Everything else (layout, arrows, agents, PR checks) works from that shape. To ad
 - **Message curves:** `log-link.sh` is a Claude Code PostToolUse hook (matcher `SendMessage`) that
   appends to `/tmp/herdr-agent-links.jsonl`; the board tails it every 5s.
 
+## Context panel
+
+`mod.json` declares `"context-panel": { "title": "Task" }` and `panel.js` registers on `globalThis.contextPanel`
+(agents-sidebar's panel). The agent's task is the ID in its tab, pane, branch or space name, looked up in the
+agent's space's databases, then any other space's. **Summary** gets the board's card (click it for the tab);
+the **Task** tab (titled with the ID) shows the whole Notion page, editable: click text to edit, click away to
+save. Title, text, number, url, date, select, status, multi-select, people and checkbox properties are editable;
+relations, files, rollups and formulas aren't. Empty properties are hidden behind **+ Add property**. Page text is edited per block as Markdown (bold, italic, strike,
+code, links); a block Markdown can't hold losslessly (mentions, colors) is shown but left to Notion. A block
+edited to empty is deleted; **Add text** appends one (`# `, `- `, `1. `, `[] `, `> ` set its type). Dates pick from a
+month calendar. The page's comments are listed under its text, oldest first, with one box under them that continues the
+latest thread, posted under your name (needs the Notion connection's comment capabilities; comments on blocks
+aren't shown).
+
 ## State
 
 Shared keys `project-board.pos` (card positions), `.view` (pan and zoom), `.sessions` (each task's

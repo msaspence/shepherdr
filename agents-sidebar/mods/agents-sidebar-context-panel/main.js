@@ -5,7 +5,7 @@
 // Copies: the pane (props.tab, the tab it was opened in), the title bar button (props.variant "toggle"), and the
 // settings dialog (no props: the palette's mod.open).
 import { View, div, svg } from "gpui-kit";
-import { h_flex, v_flex, Popover } from "gpui-base";
+import { h_flex, v_flex, Popover, ScrollHandle } from "gpui-base";
 import { checking, exec, focused, home, openOverlay, panes, props, run, shared, theme } from "herdr";
 import { HERDR_TABS, MOD, config, enabledMods, herdrView, loadTabMods, registry, scanTabMods } from "./tabs.js";
 import { initSettings, settingsView } from "./settings.js";
@@ -53,6 +53,7 @@ export default class Panel extends View {
     this.active = "summary";
     this.width = 0;
     this.stat = null; // { cwd, add, del }
+    this.scroll = ScrollHandle.new(); // the tab body's, so a mod can scroll it to the end (ctx.scrollToEnd)
     this.views = {}; // Herdr's panels, nested (cx.new) the first time their tab is shown: id -> Entity | { error }
     if (checking()) return;
     cx.spawn(async (cx) => { await scanTabMods(); await loadTabMods(cx, enabledMods()); });
@@ -104,7 +105,8 @@ export default class Panel extends View {
       .child(this.tabs(t, cx))
       .child(HERDR_TABS.has(this.active)
         ? v_flex().id("panel-body").flex_1().min_h(0).p(4).child(this.herdrTab(t, this.active, cx))
-        : v_flex().id("panel-body").flex_1().min_h(0).py(10).px(14).gap(2).overflow_y_scrollbar().child(this.content(t, cx))));
+        : v_flex().id("panel-body").flex_1().min_h(0).py(10).px(14).gap(2).overflow_y_scrollbar().track_scroll(this.scroll)
+          .child(this.content(t, cx)).child(div().h(0)))); // the empty last child is what scrollToEnd reveals
   }
 
   // The active tab, or Summary once it's been turned off or its mod is gone.
@@ -152,13 +154,15 @@ export default class Panel extends View {
       .when(Boolean(right), (el) => el.child(right));
   }
 
-  // What a registered mod's render/summary/header gets. state is this panel's own object for that mod (kept
-  // while the panel lives), width the pane's, show(id) switches the panel to a tab (call cx.notify after).
+  // What a registered mod's render/summary/header gets. tab is the panel's tab, state this panel's own object
+  // for that mod (kept while the panel lives), width the pane's, show(id) switches the panel to a tab (call
+  // cx.notify after), scrollToEnd() scrolls the tab to its end after the next layout.
   ctx(t, id, cx) {
     const agent = this.agent();
     this.modState ??= {};
-    return { t, cx, agent, cwd: agent?.cwd ?? null, branch: agent?.branch ?? null, width: this.width,
+    return { t, cx, agent, tab: props()?.tab, cwd: agent?.cwd ?? null, branch: agent?.branch ?? null, width: this.width,
       state: (this.modState[id] ??= {}), show: (tab) => { this.active = tab; },
+      scrollToEnd: () => this.scroll?.scroll_to_item(1),
       line: (lid, icon, text, right) => this.line(t, lid, icon, text, right) };
   }
 

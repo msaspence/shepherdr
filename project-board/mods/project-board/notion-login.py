@@ -22,6 +22,22 @@ except OSError:
 state = secrets.token_urlsafe(16)
 result = {}
 
+PAGE = """<!doctype html><meta charset="utf-8"><title>{title}</title>
+<meta name="color-scheme" content="light dark">
+<style>
+  body {{ margin: 0; min-height: 100vh; display: grid; place-items: center;
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: light-dark(#f6f6f4, #191919); color: light-dark(#37352f, #e6e6e4); }}
+  main {{ text-align: center; padding: 40px 48px; border-radius: 14px; max-width: 360px;
+         background: light-dark(#fff, #242424); box-shadow: 0 1px 3px #0000001a, 0 8px 24px #0000000f; }}
+  .icon {{ width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 50%; display: grid;
+          place-items: center; font-size: 26px; color: #fff; background: {color}; }}
+  h1 {{ font-size: 19px; margin: 0 0 6px; }}
+  p {{ margin: 0; opacity: .65; }}
+</style>
+<main><div class="icon">{icon}</div><h1>{title}</h1><p>{body}</p></main>
+"""
+
 
 class Callback(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -32,8 +48,14 @@ class Callback(BaseHTTPRequestHandler):
         elif "error" in q:
             result["error"] = q["error"][0]
         self.send_response(200 if ok else 400)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"Notion connected. You can close this tab and go back to Herdr." if ok else b"Login failed, go back to Herdr.")
+        page = (
+            PAGE.format(title="Notion connected", body="You can close this tab and go back to Herdr.", icon="&#10003;", color="#2e9e5b")
+            if ok
+            else PAGE.format(title="Login failed", body="Go back to Herdr and try again.", icon="&#10005;", color="#d44c47")
+        )
+        self.wfile.write(page.encode())
 
     def log_message(self, *_):
         pass

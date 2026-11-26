@@ -3,6 +3,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { PathBuilder, Background } from "gpui-kit";
 import { providers } from "./providers/index.js";
 import { CONFIG, REV_KEY, Setup, readConfig } from "./setup.js";
+import { check as checkPanel, statusPill } from "./panel.js"; // also registers the context panel's Task tab
 import { agents, spaces, panes, terminals, theme, run, exec, home, appHome, readTextFile, shared, setShared, checking, openOverlay, props } from "herdr";
 
 // Each space's project is in setup.js's CONFIG; a space without an entry gets a call to set one up.
@@ -20,8 +21,6 @@ const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 2.5;
 const TASK_ID = /\b([A-Z]{2}-\d+)\b/i;
 const GREEN = "#3fb950";
-// Status pill colors, [dot, fill], by the status's stage.
-const STAGE_COLORS = { queued: ["#D0A548", "#836A35"], progress: ["#4481D8", "#45699B"], done: ["#5F9F75", "#486A52"] };
 const CACHE = "mods/project-board/.cache"; // hidden, so downloads don't hot-reload the mod
 
 // Where an icon url is cached: the url's last part (names could collide across hosts; hash the url if a provider ever mixes them).
@@ -50,6 +49,8 @@ function mix(a, b, amount) {
  *  glowing avatars for agents working each task, and green curves for recent agent-to-agent messages. */
 export default class ProjectBoard extends View {
   init(_props, cx) {
+    // The context panel's loader window: importing panel.js was all it needed.
+    if (props()?.["context-panel"]) return (this.loader = true);
     if (["setup", "settings"].includes(props()?.variant)) return (this.setup = new Setup()).init(cx);
     // Carry over card positions, view and sessions saved while this mod was called notion-board.
     for (const key of [POS_KEY, SESSIONS_KEY, GRID_FROZEN_KEY, VIEW_KEY]) {
@@ -75,6 +76,7 @@ export default class ProjectBoard extends View {
       this.links = [{ pair: "OI-1|OI-2", at: Date.now() }];
       this.hovered = "OI-1";
       for (const p of Object.values(providers)) p.check?.();
+      checkPanel();
       this.provider = providers.notion;
       const ok = (c) => ({ __typename: "CheckRun", status: "COMPLETED", conclusion: c });
       if (prChecks([ok("SUCCESS"), ok("FAILURE")]) !== "failed" || prChecks([ok("SUCCESS"), { __typename: "CheckRun", status: "IN_PROGRESS" }]) !== "pending" || prChecks([ok("SUCCESS"), ok("SKIPPED")]) !== "passed" || prChecks([]) !== null) throw new Error("prChecks is wrong");
@@ -303,6 +305,7 @@ export default class ProjectBoard extends View {
   }
 
   render(cx) {
+    if (this.loader) return div();
     if (this.setup) return this.setup.render(cx);
     const t = theme();
     // Before any tasks have loaded an error is all there is to show; after, a failed refresh keeps the last cards.
@@ -551,7 +554,7 @@ export default class ProjectBoard extends View {
           .gap(u(8))
           .items_center()
           .child(div().text_size(u(12)).text_color(t.dim).child(task.key))
-          .when(Boolean(task.status), (el) => el.child(this.statusPill(t, u, task.status)))
+          .when(Boolean(task.status), (el) => el.child(statusPill(t, u, task.status)))
       )
       .child(
         h_flex()
@@ -631,21 +634,6 @@ export default class ProjectBoard extends View {
       props: { chat, provider: "claude", ...(space ? { cwd: shared("space.dirs")?.[space.id] || space.folder } : {}) },
     });
     cx.timer.after(800, () => run(`chat.type:${task.key}`));
-  }
-
-
-  // The task's status: a dot and white text on a fill, colored by stage.
-  statusPill(t, u, status) {
-    const [dot, fill] = STAGE_COLORS[status.stage] ?? STAGE_COLORS.progress;
-    return h_flex()
-      .gap(u(5))
-      .items_center()
-      .px(u(6))
-      .py(u(0))
-      .rounded_full()
-      .bg(fill)
-      .child(div().size(u(6)).rounded_full().bg(dot))
-      .child(div().text_size(u(12)).text_color("#ffffff").child(status.name));
   }
 
 

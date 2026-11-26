@@ -5,9 +5,10 @@
 //   (globalThis.contextPanel ??= {})["<mod>"] = { render?(ctx), summary?(ctx), header?, title?(ctx) };
 // title names the tab for this agent (else mod.json's title).
 // render gives the tab's content, summary a line (or lines) for the Summary tab, header an optional label over
-// those lines (a string, or a function of ctx returning one or null). All get ctx = { t, cx, agent, cwd, branch,
-// width, state, show(tab), line(id, icon, text, right?) }: cx the panel's, state an object the panel keeps for
-// this mod, width the pane's, show switches the panel's tab, line the Summary's own row.
+// those lines (a string, or a function of ctx returning one or null). All get ctx = { t, cx, agent, tab, cwd, branch,
+// width, state, show(tab), scrollToEnd(), line(id, icon, text, right?) }: cx the panel's, state an object the panel keeps for
+// this mod, width the pane's, tab the panel's tab id, show switches the panel's tab, scrollToEnd scrolls the tab
+// to its end (after the next layout), line the Summary's own row.
 import { appHome, closeOverlay, openOverlay, readTextFile, setShared, shared, writeTextFile } from "herdr";
 import { readdir, readFile } from "fs/promises";
 

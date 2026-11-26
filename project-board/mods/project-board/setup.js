@@ -1,7 +1,7 @@
 // The setup dialog (the board opens this mod with props { variant: "setup", space, spaceName }):
 // pick a provider, connect it (OAuth in the browser), pick what to show, and save it as the space's project.
 // With variant "settings", the board's settings for a set-up space: tabs Databases (change what it shows)
-// and Disconnect (forget the connection and the space's settings).
+// and Connection (sign in again, e.g. to grant new permissions; or forget the connection and the space's settings).
 // Also the spaces.json helpers the board reads with.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -36,7 +36,7 @@ export class Setup {
     this.items = [];
     this.picked = new Set(); // item ids
     this.settings = props().variant === "settings";
-    this.tab = "databases"; // settings: databases | disconnect
+    this.tab = "databases"; // settings: databases | connection
     if (!this.settings) return;
     this.step = "loading";
     this.attempt(cx, async () => {
@@ -68,13 +68,15 @@ export class Setup {
     });
   }
 
-  connect(entry, cx) {
-    Object.assign(this, { step: "connecting", provider: entry, error: null });
+  // keep: settings signing in again, so the space's databases stay ticked.
+  connect(entry, cx, keep = false) {
+    Object.assign(this, { step: "connecting", provider: entry, error: null, tab: "databases" });
     this.attempt(cx, async () => {
       this.draft = await entry[1].connect({ space: props().space });
       this.items = await entry[1].projects(this.draft);
-      this.picked = new Set();
+      if (!keep) this.picked = new Set();
       this.step = "projects";
+      if (keep) return;
       const usable = this.items.filter((x) => !x.unusable);
       if (usable.length === 1 && this.items.length === 1) await this.save([usable[0].id]); // nothing to choose
     });
@@ -140,14 +142,19 @@ export class Setup {
       body = v_flex().gap(8).child(note(this.error, t.blocked))
         .when(!this.settings, (el) => el.child(h_flex().px(10).child(button("retry", "Try again", (_e, cx) => { this.step = "provider"; cx.notify(); }))));
 
-    if (this.settings && this.tab === "disconnect")
-      body = v_flex().gap(10).child(note(`Disconnects ${name ?? "the integration"} and forgets this space's board settings. `
+    if (this.settings && this.tab === "connection")
+      body = v_flex().gap(10)
+        .child(note(`Signs in to ${name ?? "the integration"} again, to grant it new permissions or share other databases.`))
+        .when(Boolean(this.provider), (el) => el.child(h_flex().px(10)
+          .child(button("reauthenticate", "Reauthenticate", (_e, cx) => this.connect(this.provider, cx, true)))))
+        .child(div().mx(10).my(4).h(1).bg(t.border))
+        .child(note(`Disconnects ${name ?? "the integration"} and forgets this space's board settings. `
         + "The board goes back to its set up screen, and setting it up again signs in again."))
         .child(h_flex().px(10).child(div().id("disconnect").h(28).px(12).flex().items_center().rounded(7).cursor_pointer()
           .text_size(12.8).bg(t.ansi1).text_color("#ffffff").hover((s) => s.opacity(0.9))
           .on_click((_e, cx) => this.attempt(cx, () => this.disconnect())).child(`Disconnect ${name ?? ""}`.trim())));
 
-    const tabs = [["databases", "Databases"], ["disconnect", "Disconnect"]];
+    const tabs = [["databases", "Databases"], ["connection", "Connection"]];
     const tabBar = h_flex().px(14).pb(8).gap(2).flex_none().children(tabs.map(([id, title]) =>
       h_flex().id(`tab-${id}`).h(26).px(10).rounded(6).items_center().cursor_pointer()
         .text_color(id === this.tab ? t.foreground : t.muted)

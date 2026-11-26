@@ -1,1 +1,1 @@
-{"place": "none", "title": "Project board", "sidebar": [{"title": "Project Board", "icon": "mods/project-board/notion.svg", "tab": {"name": "Board"}}]}
+{"place": "none", "title": "Project board", "context-panel": { "title": "Task" }, "sidebar": [{"title": "Project Board", "icon": "mods/project-board/notion.svg", "tab": {"name": "Board"}}]}

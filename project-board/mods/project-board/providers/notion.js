@@ -7,22 +7,23 @@ import { appHome, exec, home, readTextFile } from "herdr";
 
 const STATUSES = ["In progress", "Queued", "Done"]; // Released tasks leave the board
 const PRIORITY_RANK = { High: 0, Medium: 1, Low: 2 };
-const ICON_COLORS = { red: "ansi1", green: "ansi2", yellow: "ansi3", blue: "ansi4", purple: "ansi5", pink: "ansi13", orange: "ansi11", brown: "ansi3" };
+export const ICON_COLORS = { red: "ansi1", green: "ansi2", yellow: "ansi3", blue: "ansi4", purple: "ansi5", pink: "ansi13", orange: "ansi11", brown: "ansi3" };
 const TOKEN = ".config/notion-board/token"; // under home
 const API = "https://api.notion.com/v1";
 
-async function notion(token, path, body) {
+// POSTs body, else GETs; method overrides (PATCH, DELETE).
+export async function notion(token, path, body, method = body ? "POST" : "GET") {
   const res = await fetch(`${API}/${path}`, {
-    method: "POST",
+    method,
     headers: { Authorization: `Bearer ${token}`, "Notion-Version": "2025-09-03", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.message ?? `Notion ${res.status}`);
   return json;
 }
 
-const readToken = async (config) => {
+export const readToken = async (config) => {
   const token = (await readTextFile(config.tokenFile ?? `${home()}/${TOKEN}`))?.trim();
   if (!token) throw new Error("not connected (no token)");
   return token;
@@ -34,7 +35,7 @@ const missing = (properties = {}) => {
   return need.length ? `Not a task database: no ${need.map(([k, type]) => `${k} (${type})`).join(" or ")} property` : null;
 };
 
-const keyOf = (p) => {
+export const keyOf = (p) => {
   const id = p.properties.ID?.unique_id;
   return id ? `${id.prefix}-${id.number}` : p.id.slice(0, 6);
 };
@@ -114,6 +115,22 @@ export default {
     }
     // Done tasks stay until Released, but only ones already on the board: most Done tasks are never Released.
     return pages.filter((p) => p.properties.Status.status?.name !== "Done" || onBoard.has(keyOf(p))).map(toTask);
+  },
+
+  // The page whose ID is key ("OI-42") in one of config's databases, or null.
+  async find(config, key) {
+    const [prefix, n] = key.split("-");
+    const token = await readToken(config);
+    let failed = 0, error;
+    for (const dataSource of config.projects ?? []) {
+      // A database without an ID property fails its query; only every one failing is an error.
+      const json = await notion(token, `data_sources/${dataSource}/query`, { page_size: 5, filter: { property: "ID", unique_id: { equals: Number(n) } } })
+        .catch((e) => { failed++; error = e; return null; });
+      const page = json?.results.find((p) => p.properties.ID?.unique_id?.prefix?.toUpperCase() === prefix.toUpperCase());
+      if (page) return page;
+    }
+    if (failed && failed === config.projects.length) throw error;
+    return null;
   },
 
   open(task) {
