@@ -164,7 +164,8 @@ function threadBody(t, th, id) {
 
 // In a dropdown, a thread or review opens in a popup: a dropdown can't scroll a long one (in a Popover, a scroll
 // area never learns its content's height). The dropdown draws above overlays, so it closes; the popup's back row
-// reopens it through REOPEN (see summary). `lines` guesses the popup's height.
+// reopens it through REOPEN (see summary). `what` is { kind: "thread" | "review", items, index }: the whole list,
+// so the popup can step through it. `lines` guesses the popup's height.
 function openPopup(v, what, title, lines, cx) {
   const back = { agent: v.agent, open: v.state.open, title };
   v.state.open = null;
@@ -190,7 +191,7 @@ function commentList(v, threads, scope, back = "Comments") {
         .child(div().truncate().text_size(12.5).text_color(th.resolved ? t.dim : t.foreground).child(first.snippet))
         .child(div().truncate().text_size(11).text_color(t.dim).child(meta.filter(Boolean).join(" · "))));
     const row = v.inline ? expander(v, id, head, () => threadBody(t, th, id))
-      : head(entry(t, `c-${id}`, (_e, cx) => openPopup(v, { thread: th }, back, threadLines(th), cx))).child(icon("chevron-right", t.dim, 12));
+      : head(entry(t, `c-${id}`, (_e, cx) => openPopup(v, { kind: "thread", items: threads, index: i }, back, threadLines(th), cx))).child(icon("chevron-right", t.dim, 12));
     return i === firstResolved ? [note(t, "Resolved"), row] : [row];
   }));
 }
@@ -387,7 +388,9 @@ function reviewBody(t, r, id, inline = false) {
 function reviewsMenu(v, pr) {
   const { t } = v;
   if (!pr.reviews.length) return note(t, "No reviews yet");
-  return v_flex().gap(2).children([...pr.reviews].sort((a, b) => (RANK[a.state] ?? 5) - (RANK[b.state] ?? 5)).map((r) => {
+  const sorted = [...pr.reviews].sort((a, b) => (RANK[a.state] ?? 5) - (RANK[b.state] ?? 5));
+  const openable = sorted.filter((r) => r.body || r.threads.length); // what a popup steps through
+  return v_flex().gap(2).children(sorted.map((r) => {
     const id = `pr${pr.number}-rv-${r.login}`;
     const meta = [r.body && snippet(r.body), threadCount(r)].filter(Boolean).join(" · ");
     const head = (el) => el.py(4).items_start()
@@ -401,7 +404,7 @@ function reviewsMenu(v, pr) {
     if (!r.body && !r.threads.length) return head(entry(t, `rv-${id}`, null)).child(div().w(12)); // nothing more to show
     if (v.inline) return expander(v, id, head, () => reviewBody(t, r, id, true));
     const lines = 2 + (r.body ? textLines(r.body) : 0) + r.threads.reduce((n, th) => n + threadLines(th), 0);
-    return head(entry(t, `rv-${id}`, (_e, cx) => openPopup(v, { review: r }, "Reviews", lines, cx))).child(icon("chevron-right", t.dim, 12));
+    return head(entry(t, `rv-${id}`, (_e, cx) => openPopup(v, { kind: "review", items: openable, index: openable.indexOf(r) }, "Reviews", lines, cx))).child(icon("chevron-right", t.dim, 12));
   }));
 }
 
@@ -658,6 +661,7 @@ export default class GithubPr extends View {
     const p = props() ?? {};
     this.variant = p.variant ?? null;
     if (this.variant === "attach") this.initAttach(p, cx);
+    if (this.variant === "popup") this.index = p.index ?? 0;
   }
 
   render() {
@@ -764,12 +768,22 @@ export default class GithubPr extends View {
           .border_1().border_color(t.border).hover((s) => s.bg(t.hover)).on_click(() => closeOverlay(p.overlay)).child("Cancel")));
   }
 
-  // A thread or review opened from a dropdown: a back row to it, then the thread or review.
+  // A thread or review opened from a dropdown: a back row to it, the chevrons to step through its list, then the
+  // thread or review. Each one starts scrolled to the top.
   popup(t) {
     const p = props();
-    return v_flex().id("popup").size_full().p(4).bg(t.popover).text_color(t.foreground).text_size(13).overflow_y_scrollbar()
-      .child(entry(t, "comment-back", () => { setShared(REOPEN, { ...p.back, at: Date.now() }); closeOverlay(p.overlay); })
-        .child(icon("chevron-left", t.dim, 12)).child(div().flex_1().truncate().text_color(t.muted).child(p.back.title ?? "Back")))
-      .child(p.review ? reviewBody(t, p.review, "pop") : threadBody(t, p.thread, "pop"));
+    const n = p.items.length, i = this.index;
+    const step = (to, name, label) => div().id(`popup-${name}`).size(22).flex().flex_none().items_center().justify_center()
+      .rounded(5).tooltip(label).when(to >= 0 && to < n, (el) => el.cursor_pointer().text_color(t.muted)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => { this.index = to; cx.notify(); }))
+      .when(!(to >= 0 && to < n), (el) => el.text_color(t.border))
+      .child(svg(I(name)).size(13));
+    return v_flex().id(`popup-${i}`).size_full().p(4).bg(t.popover).text_color(t.foreground).text_size(13).overflow_y_scrollbar()
+      .child(h_flex().gap(2).items_center()
+        .child(entry(t, "popup-back", () => { setShared(REOPEN, { ...p.back, at: Date.now() }); closeOverlay(p.overlay); })
+          .flex_1().min_w(0).child(icon("chevron-left", t.dim, 12)).child(div().flex_1().truncate().text_color(t.muted).child(p.back.title ?? "Back")))
+        .when(n > 1, (el) => el.child(div().flex_none().px(4).text_size(11.5).text_color(t.dim).child(`${i + 1} of ${n}`))
+          .child(step(i - 1, "chevron-left", "Previous")).child(step(i + 1, "chevron-right", "Next"))))
+      .child(p.kind === "review" ? reviewBody(t, p.items[i], `pop-${i}`) : threadBody(t, p.items[i], `pop-${i}`));
   }
 }
