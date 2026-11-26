@@ -1,14 +1,15 @@
 // github-pr: the agent's open pull request in the context panel (agents-sidebar-context-panel). Summary lines under
 // a "Pull Request" header, each opening a dropdown, and a PR tab with the same rows: collapsible when the pane is
-// narrow, a list and a detail pane when it's wide (nested menus then become nested collapsibles).
-// Copies: a review comment's popover (props.variant "comment"), and the
-// panel's 1px loader window (props["context-panel"] = "load"), which only needs this module to run and register.
+// narrow, a list and a detail pane when it's wide. A thread or review opens in a popup from a dropdown, in place in the tab.
+// Copies: a dropdown thread's or review's popup (props.variant "popup"), and the panel's 1px loader window
+// (props["context-panel"] = "load"), which only needs this module to run and register.
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, Popover, Popup, TextView } from "gpui-base";
 import { checking, closeOverlay, hc, openOverlay, panes, props, setShared, shared, spaces, theme } from "herdr";
-import { METHOD_KEY, agentPrs, attachingFor, closePr, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, summarize } from "./data.js";
+import { METHOD_KEY, agentPrs, attachingFor, closePr, avatarPath, listRepos, load, repoFor, merge, mergeMethod, openPrs, repoOf, setAutoMerge, setLink, snippet, summarize } from "./data.js";
 
 const MOD = "github-pr";
+const REOPEN = "agents-sidebar.github-pr-reopen"; // { agent, open, at }: a dropdown for the Summary to reopen
 const WIDE = 560; // from this pane width, the PR tab is a list beside a detail pane
 const I = (name) => `mods/${MOD}/icons/${name}.svg`;
 const METHODS = { squash: "Squash and merge", merge: "Create a merge commit", rebase: "Rebase and merge" };
@@ -117,16 +118,10 @@ const entry = (t, id, onClick) => h_flex().id(id).min_h(28).px(6).gap(8).items_c
   .when(Boolean(onClick), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick));
 const note = (t, text) => div().px(6).py(4).text_size(12).text_color(t.dim).child(text);
 
-// Rows with nested content are shown two ways. In a dropdown ("menu"), a nested item replaces the list (with a
-// back row) and a comment opens its own popover. In the PR tab ("inline"), both expand in place.
-// v = { t, inline, state, pages } — pages collects the menu's nested pages while the list is described.
-function nested(v, key, title, headFn, bodyFn) {
+// A thread or review is shown two ways. In the PR tab ("inline") it expands in place; in a dropdown ("menu") it
+// opens in a popup (openPopup). v = { t, inline, state, agent? }.
+function expander(v, key, headFn, bodyFn) {
   const { t, state } = v;
-  if (!v.inline) {
-    v.pages[key] = { title, body: bodyFn };
-    return headFn(entry(t, `nav-${key}`, (_e, cx) => { state.drill = key; cx.notify(); }))
-      .child(icon("chevron-right", t.dim, 12));
-  }
   const open = Boolean(state.exp?.[key]);
   return v_flex()
     .child(headFn(entry(t, `exp-${key}`, (_e, cx) => { (state.exp ??= {})[key] = !open; cx.notify(); }))
@@ -134,38 +129,70 @@ function nested(v, key, title, headFn, bodyFn) {
     .when(open, (el) => el.child(div().pl(14).child(bodyFn())));
 }
 
-function commentBody(t, c, id) {
-  return v_flex().gap(6).p(6)
-    .child(h_flex().gap(8).items_center()
-      .child(avatar(t, c.avatar, c.login)).child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
-      .child(ghButton(t, `gh-${id}`, c.url)))
-    .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path}${lineRange(c.start, c.line)}`)))
-    .child(TextView.markdown(`md-${id}`, c.body || "_No text_").text_size(12.5));
+// "just now", "5m ago", "3h ago", "2d ago", then a date. Worked out at render, which the panel's refresh keeps current.
+function ago(iso) {
+  const s = (Date.now() - Date.parse(iso)) / 1000;
+  if (!(s >= 60)) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 30 * 86400) return `${Math.floor(s / 86400)}d ago`;
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(d.getFullYear() !== new Date().getFullYear() && { year: "numeric" }) });
 }
 
-// Review comments, grouped by author: each one's file and line, opening the comment.
-function commentList(v, comments, scope) {
+// When a comment was made, opening it on GitHub.
+const agoLink = (t, id, c) => stop(div().id(id).flex_none().text_size(11.5).text_color(t.dim).cursor_pointer()
+  .hover((s) => s.text_color(t.foreground)).tooltip("Open on GitHub")
+  .on_click((_e, cx) => { cx.stop_propagation(); cx.open_url(c.url); })
+  .child(c.at ? ago(c.at) : "on GitHub"));
+
+const replies = (n) => `${n} ${n === 1 ? "reply" : "replies"}`;
+const where = (th) => `${th.path}${lineRange(th.start, th.line)}`;
+
+// A thread in full: its file and line, then each comment under its author.
+function threadBody(t, th, id) {
+  return v_flex().gap(10).p(6)
+    .when(Boolean(th.path), (el) => el.child(h_flex().gap(6).items_center().text_size(11.5).text_color(t.dim)
+      .child(icon("file", t.dim, 12)).child(div().flex_1().min_w(0).truncate().child(where(th)))
+      .when(th.resolved, (el) => el.child(div().flex_none().child("Resolved")))))
+    .children(th.comments.map((c, i) => v_flex().gap(4)
+      .child(h_flex().gap(8).items_center()
+        .child(avatar(t, c.avatar, c.login)).child(div().min_w(0).truncate().font_semibold().child(c.login))
+        .child(agoLink(t, `at-${id}-${i}`, c)))
+      .child(div().pl(26).child(TextView.markdown(`md-${id}-${i}`, c.body || "_No text_").text_size(12.5)))));
+}
+
+// In a dropdown, a thread or review opens in a popup: a dropdown can't scroll a long one (in a Popover, a scroll
+// area never learns its content's height). The dropdown draws above overlays, so it closes; the popup's back row
+// reopens it through REOPEN (see summary). `lines` guesses the popup's height.
+function openPopup(v, what, title, lines, cx) {
+  const back = { agent: v.agent, open: v.state.open, title };
+  v.state.open = null;
+  openOverlay({ mod: MOD, kind: "popup", at: "pointer", width: 380, height: Math.min(480, 40 + lines * 20),
+    props: { variant: "popup", ...what, back } });
+  cx.notify();
+}
+const textLines = (body) => 2 + Math.ceil(body.length / 48);
+const threadLines = (th) => th.comments.reduce((n, c) => n + textLines(c.body), th.path ? 1 : 0);
+
+// Comment threads, open ones first: who started each, what they said, where, and how many replies.
+function commentList(v, threads, scope, back = "Comments") {
   const { t } = v;
-  if (!comments.length) return note(t, "No comments");
-  const groups = new Map();
-  for (const c of comments) groups.set(c.login, [...(groups.get(c.login) ?? []), c]);
-  return v_flex().gap(2).children([...groups].map(([login, list]) => v_flex()
-    .child(h_flex().h(26).px(6).gap(8).items_center().child(avatar(t, list[0].avatar, login)).child(div().font_semibold().child(login)))
-    .children(list.map((c) => {
-      const id = `${scope}-${c.id}`;
-      const head = (el) => el.pl(32).child(div().flex_1().min_w(0).truncate().text_size(12)
-        .child(c.path
-          ? h_flex().child(div().min_w(0).truncate().child(c.path.split("/").pop()))
-            .child(div().flex_none().text_color(t.dim).child(lineRange(c.start, c.line)))
-          : div().truncate().text_color(t.muted).child(c.snippet)));
-      if (v.inline) return nested(v, id, c.path ?? c.snippet, head, () => commentBody(t, c, id));
-      return head(entry(t, `c-${id}`, (_e, cx) => {
-        v.state.open = null; // the dropdown draws above overlays, so it makes way for the comment
-        openOverlay({ mod: MOD, kind: "popup", at: "pointer", width: 380, height: Math.min(440, 120 + Math.ceil(c.body.length / 48) * 20),
-          props: { variant: "comment", comment: c } });
-        cx.notify();
-      })).child(icon("chevron-right", t.dim, 12));
-    }))));
+  if (!threads.length) return note(t, "No comments");
+  const firstResolved = threads.findIndex((th) => th.resolved);
+  return v_flex().gap(2).children(threads.flatMap((th, i) => {
+    const id = `${scope}-${th.id}`;
+    const [first, ...rest] = th.comments;
+    const meta = [first.login, th.path && `${th.path.split("/").pop()}${lineRange(th.start, th.line)}`, rest.length && replies(rest.length)];
+    const head = (el) => el.py(4).items_start()
+      .child(div().mt(1).flex_none().child(avatar(t, first.avatar, first.login)))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(div().truncate().text_size(12.5).text_color(th.resolved ? t.dim : t.foreground).child(first.snippet))
+        .child(div().truncate().text_size(11).text_color(t.dim).child(meta.filter(Boolean).join(" · "))));
+    const row = v.inline ? expander(v, id, head, () => threadBody(t, th, id))
+      : head(entry(t, `c-${id}`, (_e, cx) => openPopup(v, { thread: th }, back, threadLines(th), cx))).child(icon("chevron-right", t.dim, 12));
+    return i === firstResolved ? [note(t, "Resolved"), row] : [row];
+  }));
 }
 
 // The rows, each { key, icon, label, right, chevron, body?(v), click? }.
@@ -192,7 +219,8 @@ function items(t, pr, s, ctx) {
       right: [...counted("file-diff", c.red, s.reviews.changes), ...counted("check", c.green, s.reviews.approved), ...counted("dot", c.gold, s.reviews.pending)],
       body: (v) => reviewsMenu(v, pr) },
     { key: "comments", icon: icon("message", t.muted), label: "Comments", chevron: true,
-      right: [num(pr.comments.length, t.muted)], body: (v) => commentList(v, pr.comments, `${p}-all`) },
+      right: [num(pr.threads.filter((th) => !th.resolved).length, t.muted), ...counted("check", t.dim, pr.threads.filter((th) => th.resolved).length)],
+      body: (v) => commentList(v, pr.threads, `${p}-all`) },
     { key: "checks", icon: checksIcon(t, pr, s), label: "Checks", chevron: true,
       right: [[s.checks.passed, c.green], [s.checks.running, c.gold], [s.checks.failed, c.red], [s.checks.missing, c.grey]]
         .filter(([n]) => n).map(([n, color]) => num(n, color)),
@@ -331,20 +359,47 @@ function statusMenu(v, pr, s) {
       .when(Boolean(state.autoError), (el) => el.child(div().text_size(12).text_color(t.blocked).child(state.autoError))));
 }
 
+const VERDICT = { APPROVED: "Approved", CHANGES_REQUESTED: "Requested changes", COMMENTED: "Commented",
+  DISMISSED: "Dismissed", PENDING: "Review requested" };
+const verdictColor = (t, state) => ({ APPROVED: C(t).green, CHANGES_REQUESTED: C(t).red, PENDING: C(t).gold })[state] ?? t.dim;
+const RANK = { CHANGES_REQUESTED: 0, PENDING: 1, COMMENTED: 2, DISMISSED: 3, APPROVED: 4 }; // what needs you first
+const threadCount = (r) => {
+  const open = r.threads.filter((th) => !th.resolved).length;
+  return r.threads.length ? `${plural(r.threads.length, "thread")}${open && open < r.threads.length ? ` (${open} open)` : ""}` : null;
+};
+
+// A review in full: who and their verdict, what they wrote, then the threads they took part in.
+// Expanded in place (`inline`), its row above already says who, the verdict and the threads.
+function reviewBody(t, r, id, inline = false) {
+  return v_flex().gap(8).p(6)
+    .when(!inline, (el) => el.child(h_flex().gap(8).items_center()
+      .child(avatar(t, r.avatar, r.login)).child(div().font_semibold().child(r.login))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(verdictColor(t, r.state)).child(VERDICT[r.state] ?? ""))
+      .when(Boolean(r.url), (el) => el.child(ghButton(t, `gh-${id}`, r.url)))))
+    .when(Boolean(r.body), (el) => el.child(div().when(!inline, (el) => el.pl(26)).child(TextView.markdown(`md-${id}`, r.body).text_size(12.5))))
+    .when(!inline && r.threads.length > 0, (el) => el.child(div().pt(4).text_size(11.5).text_color(t.dim).child(threadCount(r))))
+    .children(r.threads.map((th, i) => div().when(!inline || i > 0 || Boolean(r.body), (el) => el.border_t_1()).border_color(t.border).child(threadBody(t, th, `${id}-${th.id}`))));
+}
+
+// Reviewers, the ones that need you first: each one's verdict, the start of what they wrote, and their threads.
 function reviewsMenu(v, pr) {
   const { t } = v;
   if (!pr.reviews.length) return note(t, "No reviews yet");
-  return v_flex().gap(4).children(pr.reviews.map((r) => {
+  return v_flex().gap(2).children([...pr.reviews].sort((a, b) => (RANK[a.state] ?? 5) - (RANK[b.state] ?? 5)).map((r) => {
     const id = `pr${pr.number}-rv-${r.login}`;
-    const head = (el) => el.child(icon("message", t.dim)).child(div().flex_1().text_size(12).text_color(t.muted).child(plural(r.comments.length, "comment")));
-    return v_flex().rounded(6).border_1().border_color(t.border)
-      .child(h_flex().h(30).px(6).gap(8).items_center()
-        .child(avatar(t, r.avatar, r.login)).child(div().flex_1().min_w(0).truncate().font_semibold().child(r.login))
-        .child(reviewIcon(t, r.state))
-        .child(r.url ? ghButton(t, `gh-${id}`, r.url) : div().size(22)))
-      .child(r.comments.length
-        ? nested(v, id, `${r.login}'s comments`, head, () => commentList(v, r.comments, id))
-        : head(entry(t, `none-${id}`, null)));
+    const meta = [r.body && snippet(r.body), threadCount(r)].filter(Boolean).join(" · ");
+    const head = (el) => el.py(4).items_start()
+      .child(div().mt(1).flex_none().child(avatar(t, r.avatar, r.login)))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(h_flex().gap(6).items_center().text_size(12.5)
+          .child(div().flex_none().font_semibold().child(r.login))
+          .child(div().min_w(0).truncate().text_size(12).text_color(verdictColor(t, r.state)).child(VERDICT[r.state] ?? "")))
+        .when(Boolean(meta), (el) => el.child(div().truncate().text_size(11).text_color(t.dim).child(meta))))
+      .child(div().mt(1).flex_none().child(reviewIcon(t, r.state)));
+    if (!r.body && !r.threads.length) return head(entry(t, `rv-${id}`, null)).child(div().w(12)); // nothing more to show
+    if (v.inline) return expander(v, id, head, () => reviewBody(t, r, id, true));
+    const lines = 2 + (r.body ? textLines(r.body) : 0) + r.threads.reduce((n, th) => n + threadLines(th), 0);
+    return head(entry(t, `rv-${id}`, (_e, cx) => openPopup(v, { review: r }, "Reviews", lines, cx))).child(icon("chevron-right", t.dim, 12));
   }));
 }
 
@@ -384,19 +439,11 @@ function rowHead(t, id, it, { active, open, flush } = {}) {
     .when(Boolean(it.chevron), (el) => el.child(icon(open ? "chevron-down" : "chevron-right", t.dim, 12)));
 }
 
-// The dropdown under a Summary row; a nested page shows in its place with a back row.
-function menu(t, it, state) {
-  const v = { t, inline: false, state, pages: {} };
-  const list = it.body(v);
-  const page = state.drill && v.pages[state.drill];
-  return v_flex().id(`menu-${it.key}`).w(300).max_h(420).p(4).gap(2).rounded(8).bg(t.popover).border_1().border_color(t.border)
-    .shadow_lg().text_size(13).text_color(t.foreground).overflow_y_scrollbar()
-    .child(page
-      ? v_flex().gap(2)
-        .child(entry(t, "menu-back", (_e, cx) => { state.drill = null; cx.notify(); })
-          .child(icon("chevron-left", t.dim, 12)).child(div().flex_1().truncate().text_color(t.muted).child(page.title)))
-        .child(page.body())
-      : list);
+// The dropdown under a Summary row. The child mustn't shrink, or nothing overflows to scroll.
+function menu(t, it, state, agent) {
+  return v_flex().id(`menu-${it.key}`).w(300).max_h(420).p(4).rounded(8).bg(t.popover)
+    .border_1().border_color(t.border).shadow_lg().text_size(13).text_color(t.foreground).overflow_y_scrollbar()
+    .child(v_flex().flex_none().child(it.body({ t, inline: false, state, agent })));
 }
 
 function summaryRows(t, pr, ctx) {
@@ -405,28 +452,27 @@ function summaryRows(t, pr, ctx) {
   return v_flex().children(items(t, pr, s, ctx).filter((it) => it.key !== "conflicts" || s.conflicting).map((it) => {
     const id = `ghpr-${pr.number}-${it.key}`;
     if (!it.body || it.click) return rowHead(t, id, it).when(Boolean(it.click), (el) => el.on_click(it.click));
-    return menuRow(t, id, it, state);
+    return menuRow(t, id, it, state, ctx.agent?.terminal ?? null);
   }));
 }
 
 // A row whose body opens as a dropdown under it.
 // The indent goes outside the popover, so the dropdown's left edge lines up with the row, not the PR number.
-const menuRow = (t, id, it, state) => div().when(indented(it), (el) => el.pl(8))
+const menuRow = (t, id, it, state, agent = null) => div().when(indented(it), (el) => el.pl(8))
   .child(Popover.new(`${id}-menu`).anchor("top_left").open(state.open === id)
     .on_open_change((open, cx) => {
       if (!open && state.methodsFor) return; // a method menu is open inside: it closes first
       state.open = open ? id : null;
-      state.drill = null;
       cx.notify();
     })
     .trigger(rowHead(t, id, it, { flush: true }))
-    .content(div().pt(4).child(menu(t, it, state)))); // 4px clear of the trigger's background
+    .content(div().pt(4).child(menu(t, it, state, agent)))); // 4px clear of the trigger's background
 
 // The PR tab: narrow, each PR's rows expand in place (Status opens a dropdown, as in the Summary); wide, every PR's rows in one list beside a single pane with
 // the selected row's content.
 function tabView(t, prs, ctx, loading) {
   const { state } = ctx;
-  const v = { t, inline: true, state, pages: {} };
+  const v = { t, inline: true, state };
   const key = (pr, it) => `pr${pr.number}-${it.key}`;
   // The title row is the tab's heading here: nothing to open but its GitHub button. Unlink goes under the PR's rows.
   const groups = prs.map((pr) => ({ pr, list: items(t, pr, summarize(pr), ctx).map((it) => (it.key === "title"
@@ -572,6 +618,12 @@ const register = {
   header: (ctx) => (prCount(ctx) || ctx.agent?.terminal || (ctx.cwd && !load(ctx)) ? prLabel(ctx) : null),
   summary: (ctx) => {
     const { t } = ctx;
+    const back = shared(REOPEN); // a popup's back row: reopen its dropdown
+    if (back && back.agent === (ctx.agent?.terminal ?? null) && back.at !== ctx.state.reopened
+      && Date.now() - back.at < 5000) { // not an old one, in a panel opened since
+      ctx.state.reopened = back.at; // once per hand-off
+      ctx.state.open = back.open;
+    }
     const e = load(ctx);
     if (!e) return ctx.cwd ? loadingAll(t) : null;
     const loading = loadingRows(t, ctx, e?.prs);
@@ -593,7 +645,8 @@ const register = {
     const body = e.error && !e.prs ? msg(e.error, t.blocked)
       : !e.prs?.length && !loading.length ? none(t, ctx)
       : tabView(t, e.prs ?? [], ctx, loading);
-    return v_flex().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
+    // flex_none: the panel's scroll body is a flex column, which would squeeze a tall tab to fit instead of scrolling it.
+    return v_flex().flex_none().gap(4).child(body).when(Boolean(ctx.agent?.terminal), (el) => el.child(actions(t, ctx)));
   },
 };
 (globalThis.contextPanel ??= {})[MOD] = register;
@@ -607,8 +660,8 @@ export default class GithubPr extends View {
 
   render() {
     const t = theme();
-    if (this.variant === "comment") return this.comment(t);
     if (this.variant === "attach") return this.attachDialog(t);
+    if (this.variant === "popup") return this.popup(t);
     return div();
   }
 
@@ -709,15 +762,12 @@ export default class GithubPr extends View {
           .border_1().border_color(t.border).hover((s) => s.bg(t.hover)).on_click(() => closeOverlay(p.overlay)).child("Cancel")));
   }
 
-  comment(t) {
-    const c = props().comment;
-    return v_flex().id("comment").size_full().bg(t.popover).text_color(t.foreground).text_size(13).overflow_y_scrollbar()
-      .child(v_flex().gap(6).p(10)
-        .child(h_flex().gap(8).items_center()
-          .child(avatar(t, c.avatar, c.login, 20))
-          .child(div().flex_1().min_w(0).truncate().font_semibold().child(c.login))
-          .child(ghButton(t, "gh-comment", c.url)))
-        .when(Boolean(c.path), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(`${c.path}${lineRange(c.start, c.line)}`)))
-        .child(TextView.markdown("comment-body", c.body || "_No text_").text_size(12.5)));
+  // A thread or review opened from a dropdown: a back row to it, then the thread or review.
+  popup(t) {
+    const p = props();
+    return v_flex().id("popup").size_full().p(4).bg(t.popover).text_color(t.foreground).text_size(13).overflow_y_scrollbar()
+      .child(entry(t, "comment-back", () => { setShared(REOPEN, { ...p.back, at: Date.now() }); closeOverlay(p.overlay); })
+        .child(icon("chevron-left", t.dim, 12)).child(div().flex_1().truncate().text_color(t.muted).child(p.back.title ?? "Back")))
+      .child(p.review ? reviewBody(t, p.review, "pop") : threadBody(t, p.thread, "pop"));
   }
 }

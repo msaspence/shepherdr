@@ -21,10 +21,10 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!){
    viewerCanEnableAutoMerge viewerCanDisableAutoMerge autoMergeRequest{ mergeMethod }
    baseRef{ branchProtectionRule{ requiredStatusCheckContexts } }
    reviewRequests(first:30){ nodes{ requestedReviewer{ __typename ... on User{ login avatarUrl } ... on Team{ name avatarUrl } } } }
-   reviews(first:100){ nodes{ id url state author{ login avatarUrl } } }
-   comments(first:100){ nodes{ id url body author{ login avatarUrl } } }
+   reviews(first:100){ nodes{ id url state body author{ login avatarUrl } } }
+   comments(first:100){ nodes{ id url body createdAt author{ login avatarUrl } } }
    reviewThreads(first:100){ nodes{ isResolved path line startLine originalLine originalStartLine
-    comments(first:50){ nodes{ id url body author{ login avatarUrl } } } } }
+    comments(first:50){ nodes{ id url body createdAt author{ login avatarUrl } } } } }
    commits(last:1){ nodes{ commit{ statusCheckRollup{ contexts(first:100){ nodes{ __typename
     ... on CheckRun{ name status conclusion detailsUrl isRequired(pullRequestNumber:$number)
       checkSuite{ app{ name logoUrl } workflowRun{ workflow{ name } } } }
@@ -179,7 +179,7 @@ async function fetchPrs(cwd, branch, terminal) {
     if (pr.mergeable === "CONFLICTING") pr.conflicts = await conflicts(cwd, pr.base, pr.head === branch ? "HEAD" : pr.head);
     prs.push(pr);
   }
-  await Promise.all(prs.flatMap((pr) => [...pr.reviews, ...pr.comments, ...pr.checks]).map((x) => cacheAvatar(x.avatar)));
+  await Promise.all(prs.flatMap((pr) => [...pr.reviews, ...pr.threads.flatMap((th) => th.comments), ...pr.checks]).map((x) => cacheAvatar(x.avatar)));
   return prs;
 }
 
@@ -193,11 +193,14 @@ export const snippet = (body) => (body ?? "").replace(/<!--[\s\S]*?-->/g, " ").r
 export function normalize(owner, repo, r) {
   const p = r.pullRequest;
   const who = (a) => ({ login: a?.login ?? "ghost", avatar: a?.avatarUrl ?? null });
-  const comments = p.reviewThreads.nodes.flatMap((th) => th.comments.nodes.map((c) => ({
-    id: c.id, url: c.url, body: c.body ?? "", path: th.path, resolved: th.isResolved,
-    line: th.line ?? th.originalLine, start: th.startLine ?? th.originalStartLine, ...who(c.author) })));
-  // Conversation comments have no file: they're labelled with the start of their text instead.
-  const general = p.comments.nodes.map((c) => ({ id: c.id, url: c.url, body: c.body ?? "", path: null, snippet: snippet(c.body), ...who(c.author) }));
+  const comment = (c) => ({ id: c.id, url: c.url, body: c.body ?? "", snippet: snippet(c.body), at: c.createdAt, ...who(c.author) });
+  // Threads: a review thread on a file's lines, or one conversation comment (no path). Open ones first.
+  const threads = [
+    ...p.comments.nodes.map((c) => ({ id: c.id, path: null, resolved: false, comments: [comment(c)] })),
+    ...p.reviewThreads.nodes.filter((th) => th.comments.nodes.length).map((th) => ({
+      id: th.comments.nodes[0].id, path: th.path, resolved: th.isResolved,
+      line: th.line ?? th.originalLine, start: th.startLine ?? th.originalStartLine, comments: th.comments.nodes.map(comment) })),
+  ].sort((a, b) => a.resolved - b.resolved);
 
   // Each reviewer's standing review: their latest approval, change request or dismissal, else their latest comment.
   // Requested reviewers (again, or for the first time) are pending.
@@ -206,14 +209,14 @@ export function normalize(owner, repo, r) {
     if (rv.state === "PENDING") continue;
     const { login, avatar } = who(rv.author);
     const prev = byAuthor.get(login);
-    if (!prev || OPINION.has(rv.state) || !OPINION.has(prev.state)) byAuthor.set(login, { login, avatar, state: rv.state, url: rv.url });
+    if (!prev || OPINION.has(rv.state) || !OPINION.has(prev.state)) byAuthor.set(login, { login, avatar, state: rv.state, url: rv.url, body: rv.body ?? "" });
   }
   for (const { requestedReviewer: q } of p.reviewRequests.nodes) {
     if (!q) continue;
     const login = q.login ?? q.name;
     byAuthor.set(login, { ...byAuthor.get(login), login, avatar: q.avatarUrl, state: "PENDING" });
   }
-  const reviews = [...byAuthor.values()].map((rv) => ({ ...rv, comments: comments.filter((c) => c.login === rv.login) }));
+  const reviews = [...byAuthor.values()].map((rv) => ({ ...rv, threads: threads.filter((th) => th.comments.some((c) => c.login === rv.login)) }));
 
   const nodes = p.commits.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
   const checks = nodes.map((n) => n.__typename === "CheckRun"
@@ -236,7 +239,7 @@ export function normalize(owner, repo, r) {
     methods: [r.squashMergeAllowed && "squash", r.mergeCommitAllowed && "merge", r.rebaseMergeAllowed && "rebase"].filter(Boolean),
     autoMerge: p.autoMergeRequest?.mergeMethod?.toLowerCase() ?? null, // its method, or null when off
     canAuto: p.viewerCanEnableAutoMerge || p.viewerCanDisableAutoMerge,
-    reviews, comments: [...general, ...comments], checks, conflicts: null,
+    reviews, threads, checks, conflicts: null,
   };
 }
 
