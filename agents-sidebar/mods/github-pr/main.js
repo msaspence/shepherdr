@@ -209,7 +209,9 @@ function items(t, pr, s, ctx) {
         .child(div().font_semibold().child(pr.title))
         .child(h_flex().gap(6).text_size(12).text_color(t.dim).child(`${pr.head} → ${pr.base}`).when(pr.draft, (el) => el.child(div().text_color(c.gold).child("Draft")))) },
     // Its repo, only when some PR shown isn't from the space's repo (then for every PR: see showRepo).
-    ctx.showRepo && { key: "repo", icon: icon("book-marked", t.muted), label: `${pr.owner}/${pr.repo}` },
+    ctx.showRepo && { key: "repo", icon: icon("book-marked", t.muted), label: `${pr.owner}/${pr.repo}`,
+      right: [ghButton(t, `${p}-repo-gh`, `https://github.com/${pr.owner}/${pr.repo}`)],
+      click: (_e, cx) => cx.open_url(`https://github.com/${pr.owner}/${pr.repo}`) },
     { key: "status", icon: indicator(t, pr, s), label: s.text, right: [], chevron: true,
       body: (v) => statusMenu(v, pr, s) },
     { key: "changes", icon: icon("file-diff", t.muted), label: "Changes",
